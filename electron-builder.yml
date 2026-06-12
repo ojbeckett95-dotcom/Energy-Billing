@@ -1,0 +1,44 @@
+appId: com.energybilling.app
+productName: Energy Billing
+copyright: Copyright © 2025
+
+directories:
+  output: dist
+  buildResources: build-resources
+
+# Files to include in the package (asar)
+files:
+  - dist-electron/**
+  - "!dist-electron/**/*.map"
+
+# Extra resources placed into resources/app/ (outside asar)
+extraResources:
+  - from: .next-prod/standalone
+    to: app/.next/standalone
+    filter:
+      - "**/*"
+  - from: scheduler.cjs
+    to: app/scheduler.cjs
+  - from: public
+    to: app/public
+    filter:
+      - "**/*"
+
+# Native addons must be outside asar so Node can dlopen them
+asarUnpack:
+  - "**/*.node"
+  - "**/node_modules/modbus-serial/**"
+
+# Windows NSIS installer
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Energy Billing
