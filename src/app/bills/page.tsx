@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { Bill, Customer, TariffRate, MeterReading, CustomerTariffSchedule, Meter } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const statusColors: Record<string, { bg: string; text: string; icon: React.ElementType }> = {
   draft: { bg: "bg-slate-100", text: "text-slate-600", icon: Clock },
@@ -43,16 +44,22 @@ export default function BillsPage() {
   });
 
   async function load() {
-    const [b, c, t, r, s, m] = await Promise.all([
-      fetch("/api/bills").then(r => r.json()),
-      fetch("/api/customers").then(r => r.json()),
-      fetch("/api/tariffs").then(r => r.json()),
-      fetch("/api/readings").then(r => r.json()),
-      fetch("/api/customer-tariff-schedules").then(r => r.json()),
-      fetch("/api/meters").then(r => r.json()),
-    ]);
-    const customerMap = Object.fromEntries((c as Customer[]).map(x => [x.id, x.name]));
-    setBills((b as Bill[]).map(bill => ({ ...bill, customerName: customerMap[bill.customerId] ?? "Unknown" })));
+    let b: Bill[], c: Customer[], t: TariffRate[], r: MeterReading[], s: CustomerTariffSchedule[], m: Meter[];
+    try {
+      [b, c, t, r, s, m] = await Promise.all([
+        apiGet<Bill[]>("/api/bills"),
+        apiGet<Customer[]>("/api/customers"),
+        apiGet<TariffRate[]>("/api/tariffs"),
+        apiGet<MeterReading[]>("/api/readings"),
+        apiGet<CustomerTariffSchedule[]>("/api/customer-tariff-schedules"),
+        apiGet<Meter[]>("/api/meters"),
+      ]);
+    } catch (err) {
+      toast.error(`Could not load bills: ${errorText(err)}`);
+      return;
+    }
+    const customerMap = Object.fromEntries(c.map(x => [x.id, x.name]));
+    setBills(b.map(bill => ({ ...bill, customerName: customerMap[bill.customerId] ?? "Unknown" })));
     setCustomers(c);
     setTariffs(t);
     setReadings(r);
@@ -103,27 +110,20 @@ export default function BillsPage() {
     }
     setLoading(true);
     try {
-      const r = await fetch("/api/bills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId: form.customerId,
-          meterId: form.meterId || undefined,
-          tariffRateId: form.tariffRateId,
-          billingPeriodStart: form.billingPeriodStart,
-          billingPeriodEnd: form.billingPeriodEnd,
-          openingReadingId: form.openingReadingId,
-          closingReadingId: form.closingReadingId,
-        }),
+      const bill = await apiSend<Bill>("/api/bills", "POST", {
+        customerId: form.customerId,
+        meterId: form.meterId || undefined,
+        tariffRateId: form.tariffRateId,
+        billingPeriodStart: form.billingPeriodStart,
+        billingPeriodEnd: form.billingPeriodEnd,
+        openingReadingId: form.openingReadingId,
+        closingReadingId: form.closingReadingId,
       });
-      if (!r.ok) {
-        const e = await r.json();
-        toast.error(e.error ?? "Failed to generate bill");
-        return;
-      }
       toast.success("Bill generated successfully");
       setShowForm(false);
       load();
+    } catch (err) {
+      toast.error(`Failed to generate bill: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -132,18 +132,11 @@ export default function BillsPage() {
   async function sendBill(id: string) {
     setSendingId(id);
     try {
-      const r = await fetch(`/api/bills/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "send" }),
-      });
-      const result = await r.json();
-      if (r.ok) {
-        toast.success("Bill sent successfully");
-        load();
-      } else {
-        toast.error(result.error ?? "Failed to send bill");
-      }
+      await apiSend(`/api/bills/${id}`, "PATCH", { action: "send" });
+      toast.success("Bill sent successfully");
+      load();
+    } catch (err) {
+      toast.error(`Failed to send bill: ${errorText(err)}`);
     } finally {
       setSendingId(null);
     }
@@ -152,41 +145,34 @@ export default function BillsPage() {
   async function resendBill(id: string) {
     setResendingId(id);
     try {
-      const r = await fetch(`/api/bills/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "resend" }),
-      });
-      const result = await r.json();
-      if (r.ok) {
-        toast.success("Bill re-sent successfully");
-        load();
-      } else {
-        toast.error(result.error ?? "Failed to re-send bill");
-      }
+      await apiSend(`/api/bills/${id}`, "PATCH", { action: "resend" });
+      toast.success("Bill re-sent successfully");
+      load();
+    } catch (err) {
+      toast.error(`Failed to re-send bill: ${errorText(err)}`);
     } finally {
       setResendingId(null);
     }
   }
 
   async function markPaid(id: string) {
-    await fetch(`/api/bills/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "paid" }),
-    });
-    toast.success("Marked as paid");
+    try {
+      await apiSend(`/api/bills/${id}`, "PATCH", { status: "paid" });
+      toast.success("Marked as paid");
+    } catch (err) {
+      toast.error(`Could not mark bill as paid: ${errorText(err)}`);
+    }
     load();
   }
 
   async function regeneratePdf(id: string) {
-    const r = await fetch(`/api/bills/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "regenerate-pdf" }),
-    });
-    if (r.ok) { toast.success("PDF regenerated"); load(); }
-    else toast.error("Failed to regenerate PDF");
+    try {
+      await apiSend(`/api/bills/${id}`, "PATCH", { action: "regenerate-pdf" });
+      toast.success("PDF regenerated");
+      load();
+    } catch (err) {
+      toast.error(`Failed to regenerate PDF: ${errorText(err)}`);
+    }
   }
 
   async function deleteSelected() {
@@ -194,18 +180,11 @@ export default function BillsPage() {
     if (!confirm(`Delete ${selected.size} bill(s)? This cannot be undone.`)) return;
     setDeleting(true);
     try {
-      const r = await fetch("/api/bills", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected] }),
-      });
-      if (r.ok) {
-        toast.success(`Deleted ${selected.size} bill(s)`);
-        load();
-      } else {
-        const e = await r.json();
-        toast.error(e.error ?? "Failed to delete bills");
-      }
+      await apiSend("/api/bills", "DELETE", { ids: [...selected] });
+      toast.success(`Deleted ${selected.size} bill(s)`);
+      load();
+    } catch (err) {
+      toast.error(`Failed to delete bills: ${errorText(err)}`);
     } finally {
       setDeleting(false);
     }
@@ -213,8 +192,12 @@ export default function BillsPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this bill?")) return;
-    await fetch(`/api/bills/${id}`, { method: "DELETE" });
-    toast.success("Bill deleted");
+    try {
+      await apiSend(`/api/bills/${id}`, "DELETE");
+      toast.success("Bill deleted");
+    } catch (err) {
+      toast.error(`Could not delete bill: ${errorText(err)}`);
+    }
     load();
   }
 
@@ -222,7 +205,11 @@ export default function BillsPage() {
     if (!bill.pdfBase64 && !bill.pdfFilePath) { toast.error("No PDF available – try regenerating"); return; }
     try {
       const resp = await fetch(`/api/bills/${bill.id}/pdf`);
-      if (!resp.ok) { toast.error("No PDF available – try regenerating"); return; }
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => null) as { error?: string } | null;
+        toast.error(body?.error ?? `Could not download PDF (${resp.status} ${resp.statusText}) – try regenerating`);
+        return;
+      }
       const blob = await resp.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -230,8 +217,8 @@ export default function BillsPage() {
       a.download = `invoice-${bill.id}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      toast.error("Failed to download PDF");
+    } catch (err) {
+      toast.error(`Failed to download PDF: ${errorText(err)}`);
     }
   }
 

@@ -139,6 +139,8 @@ async function runAutoBilling() {
       continue;
     }
 
+    let pdfGenerationFailed = false;
+    let billedAny = false;
     for (const meter of customerMeters) {
       try {
         // Filter readings by this meter
@@ -247,7 +249,12 @@ async function runAutoBilling() {
             bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
           }
         } catch (err) {
-          console.error(`[scheduler]   PDF error for ${customer.name}/${meter.name}:`, err);
+          console.error(
+            `[scheduler]   PDF generation failed for ${customer.name}/${meter.name}; bill not created —`,
+            err,
+          );
+          pdfGenerationFailed = true;
+          continue;
         }
 
         // Save bill to disk immediately (before email attempt, so it's never lost)
@@ -258,16 +265,12 @@ async function runAutoBilling() {
           if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
           return { ...r, billedInBillId: bill.id };
         });
-        const custIdx = fresh.customers.findIndex(c => c.id === customer.id);
-        if (custIdx >= 0) {
-          fresh.customers[custIdx] = { ...fresh.customers[custIdx], lastAutoBilledAt: todayStr };
-        }
         writeData(fresh);
         ok++;
+        billedAny = true;
 
         // Send email (after saving — a hang or failure here won't lose the bill)
-        const hasPdf = bill.pdfBase64 || bill.pdfFilePath;
-        if (data.schedulerSettings.autoBillingSendEmail && customer.email && hasPdf) {
+        if (data.schedulerSettings.autoBillingSendEmail && customer.email) {
           const pdfBytes = bill.pdfFilePath
             ? (await import("fs")).readFileSync(bill.pdfFilePath)
             : Buffer.from(bill.pdfBase64!, "base64");
@@ -287,11 +290,19 @@ async function runAutoBilling() {
             }
             writeData(billUpdate);
           }
-        } else if (!data.schedulerSettings.autoBillingSendEmail || !customer.email || !hasPdf) {
+        } else {
           console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — saved as draft`);
         }
       } catch (err) {
         console.error(`[scheduler]   error for ${customer.name}/${meter.name}:`, err);
+      }
+    }
+    if (!pdfGenerationFailed && billedAny) {
+      const fresh = readData();
+      const custIdx = fresh.customers.findIndex(c => c.id === customer.id);
+      if (custIdx >= 0) {
+        fresh.customers[custIdx] = { ...fresh.customers[custIdx], lastAutoBilledAt: todayStr };
+        writeData(fresh);
       }
     }
   }

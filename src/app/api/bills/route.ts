@@ -1,3 +1,4 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateBillId, saveBillPDFToFile } from "@/lib/db";
 import { generateBillPDF } from "@/lib/pdf-generator";
@@ -14,7 +15,7 @@ interface GenerateBillRequest {
 }
 
 // DELETE /api/bills — bulk delete by IDs
-export async function DELETE(req: NextRequest) {
+export const DELETE = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json() as { ids: string[] };
   const { ids } = body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -30,7 +31,9 @@ export async function DELETE(req: NextRequest) {
       try {
         const fs = await import("fs");
         if (fs.existsSync(bill.pdfFilePath)) fs.unlinkSync(bill.pdfFilePath);
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.error(`Could not delete PDF ${bill.pdfFilePath}:`, err);
+      }
     }
   }
 
@@ -44,9 +47,9 @@ export async function DELETE(req: NextRequest) {
   data.bills = data.bills.filter(b => !idSet.has(b.id));
   writeData(data);
   return NextResponse.json({ success: true, deleted: ids.length });
-}
+});
 
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
   const data = readData();
@@ -54,9 +57,9 @@ export async function GET(req: NextRequest) {
     ? data.bills.filter((b) => b.customerId === customerId)
     : data.bills;
   return NextResponse.json(bills.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt)));
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json() as GenerateBillRequest;
   const data = readData();
 
@@ -136,7 +139,12 @@ export async function POST(req: NextRequest) {
       bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
     }
   } catch (err) {
+    // A bill without its PDF is incomplete, so save nothing and let the caller retry.
     console.error("PDF generation failed:", err);
+    return NextResponse.json(
+      { error: `PDF generation failed, bill not created: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
   }
 
   data.bills.push(bill);
@@ -154,4 +162,4 @@ export async function POST(req: NextRequest) {
   writeData(data);
 
   return NextResponse.json(bill, { status: 201 });
-}
+});

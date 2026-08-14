@@ -16,6 +16,8 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { apiSend, errorText } from "@/lib/api-client";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -34,7 +36,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
+    try {
+      await apiSend("/api/auth/logout", "POST");
+    } catch (err) {
+      toast.error(`Logout failed — you may still be signed in: ${errorText(err)}`);
+      return;
+    }
     router.replace("/login");
   }
 

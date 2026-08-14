@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData } from "@/lib/db";
 import { verifySessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
 
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const data = readData();
   const hasPassword = !!data.authSettings?.passwordHash;
 
@@ -12,4 +13,4 @@ export async function GET(req: NextRequest) {
   const authenticated = !!token && verifySessionToken(token, secret);
 
   return NextResponse.json({ hasPassword, authenticated });
-}
+});

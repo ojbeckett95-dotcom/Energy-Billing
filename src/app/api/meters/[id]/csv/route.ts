@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateId } from "@/lib/db";
 
 // GET /api/meters/[id]/csv — export all readings for this meter as CSV
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const meter = data.meters.find((m) => m.id === id);
@@ -31,10 +32,10 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
       "Content-Disposition": `attachment; filename="meter-${id}.csv"`,
     },
   });
-}
+});
 
 // POST /api/meters/[id]/csv — import CSV for this meter
-export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const meter = data.meters.find((m) => m.id === id);
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   writeData(data);
   return NextResponse.json({ imported, updated, skipped });
-}
+});
 
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];

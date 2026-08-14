@@ -1,9 +1,10 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { hashPassword, createSessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
 
 // Only callable when no password is set yet (first-run setup)
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const data = readData();
   if (data.authSettings?.passwordHash) {
     return NextResponse.json({ error: "Password already configured" }, { status: 403 });
@@ -28,4 +29,4 @@ export async function POST(req: NextRequest) {
     maxAge: 8 * 3600,
   });
   return res;
-}
+});

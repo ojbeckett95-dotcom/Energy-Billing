@@ -1,7 +1,8 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { readData } from "@/lib/db";
 
-export async function GET() {
+export const GET = withErrorHandling(async () => {
   const data = readData();
 
   const totalCustomers = data.customers.length;
@@ -50,4 +51,4 @@ export async function GET() {
     recentBills,
     monthlyRevenue,
   });
-}
+});

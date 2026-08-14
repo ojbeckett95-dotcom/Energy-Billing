@@ -5,6 +5,7 @@ import { Plus, Pencil, Trash2, Server, Search, Wifi, RefreshCw, ChevronDown } fr
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import type { Meter, Customer, ModbusRegisterType, ModbusDataType } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const EMPTY_FORM = {
   serialNumber: "",
@@ -32,10 +33,16 @@ export default function MetersPage() {
   const [testingId, setTestingId] = useState<string | null>(null);
 
   async function load() {
-    const [m, c] = await Promise.all([
-      fetch("/api/meters").then(r => r.json()),
-      fetch("/api/customers").then(r => r.json()),
-    ]);
+    let m: Meter[], c: Customer[];
+    try {
+      [m, c] = await Promise.all([
+        apiGet<Meter[]>("/api/meters"),
+        apiGet<Customer[]>("/api/customers"),
+      ]);
+    } catch (err) {
+      toast.error(`Could not load meters: ${errorText(err)}`);
+      return;
+    }
     setMeters(m);
     setCustomers(c);
   }
@@ -91,22 +98,16 @@ export default function MetersPage() {
         notes: form.notes,
       };
       if (editId) {
-        await fetch(`/api/meters/${editId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        await apiSend(`/api/meters/${editId}`, "PUT", body);
         toast.success("Meter updated");
       } else {
-        await fetch("/api/meters", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
+        await apiSend("/api/meters", "POST", body);
         toast.success("Meter registered");
       }
       setShowForm(false);
       load();
+    } catch (err) {
+      toast.error(`Could not save meter: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -114,13 +115,12 @@ export default function MetersPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this meter? This will fail if readings are linked to it.")) return;
-    const r = await fetch(`/api/meters/${id}`, { method: "DELETE" });
-    if (r.ok) {
+    try {
+      await apiSend(`/api/meters/${id}`, "DELETE");
       toast.success("Meter deleted");
       load();
-    } else {
-      const e = await r.json();
-      toast.error(e.error ?? "Failed to delete meter");
+    } catch (err) {
+      toast.error(`Failed to delete meter: ${errorText(err)}`);
     }
   }
 
@@ -128,10 +128,10 @@ export default function MetersPage() {
     if (!m.meterIp) { toast.error("No IP address configured"); return; }
     setTestingId(m.id);
     try {
-      const r = await fetch("/api/modbus/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const result = await apiSend<{ success: boolean; error?: string; tariff1Kwh?: number; tariff2Kwh?: number }>(
+        "/api/modbus/read",
+        "POST",
+        {
           ip: m.meterIp,
           port: m.meterPort,
           unitId: m.meterUnitId,
@@ -139,14 +139,15 @@ export default function MetersPage() {
           t2Register: m.meterT2Register,
           registerType: m.registerType,
           dataType: m.dataType,
-        }),
-      });
-      const result = await r.json();
+        },
+      );
       if (result.success) {
         toast.success(`Connected! T1: ${result.tariff1Kwh} kWh | T2: ${result.tariff2Kwh} kWh`);
       } else {
         toast.error(`Failed: ${result.error}`);
       }
+    } catch (err) {
+      toast.error(`Failed: ${errorText(err)}`);
     } finally {
       setTestingId(null);
     }

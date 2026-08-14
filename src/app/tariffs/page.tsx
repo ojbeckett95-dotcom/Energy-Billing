@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { TariffRate } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const today = new Date().toISOString().slice(0, 10);
 
@@ -37,8 +38,11 @@ export default function TariffsPage() {
   const [loading, setLoading] = useState(false);
 
   async function load() {
-    const r = await fetch("/api/tariffs");
-    setTariffs(await r.json());
+    try {
+      setTariffs(await apiGet<TariffRate[]>("/api/tariffs"));
+    } catch (err) {
+      toast.error(`Could not load tariffs: ${errorText(err)}`);
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -96,14 +100,16 @@ export default function TariffsPage() {
         notes: form.notes,
       };
       if (editId) {
-        await fetch(`/api/tariffs/${editId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await apiSend(`/api/tariffs/${editId}`, "PUT", payload);
         toast.success("Tariff updated");
       } else {
-        await fetch("/api/tariffs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        await apiSend("/api/tariffs", "POST", payload);
         toast.success("Tariff created");
       }
       setShowForm(false);
       load();
+    } catch (err) {
+      toast.error(`Could not save tariff: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -111,8 +117,12 @@ export default function TariffsPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this tariff rate?")) return;
-    await fetch(`/api/tariffs/${id}`, { method: "DELETE" });
-    toast.success("Tariff deleted");
+    try {
+      await apiSend(`/api/tariffs/${id}`, "DELETE");
+      toast.success("Tariff deleted");
+    } catch (err) {
+      toast.error(`Could not delete tariff: ${errorText(err)}`);
+    }
     load();
   }
 

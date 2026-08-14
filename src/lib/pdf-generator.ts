@@ -127,8 +127,8 @@ export async function generateBillPDF(
         height: logoH,
       });
       y -= (logoH + 22);
-    } catch {
-      // Logo failed – continue without it
+    } catch (err) {
+      console.error("[pdf] Logo could not be embedded; continuing without it:", err);
     }
   }
 

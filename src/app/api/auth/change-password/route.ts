@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { verifyPassword, hashPassword } from "@/lib/auth-server";
 
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const { currentPassword, newPassword } = await req.json() as { currentPassword: string; newPassword: string };
 
   if (!newPassword || newPassword.length < 6) {
@@ -16,4 +17,4 @@ export async function POST(req: NextRequest) {
   data.authSettings.passwordHash = await hashPassword(newPassword);
   writeData(data);
   return NextResponse.json({ ok: true });
-}
+});

@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { MeterReading, Customer, Meter } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const nowForInput = () => format(new Date(), "yyyy-MM-dd'T'HH:mm");
 
@@ -58,11 +59,17 @@ export default function ReadingsPage() {
     else if (filterCustomer) params.set("customerId", filterCustomer);
     if (showArchived) params.set("archived", "true");
 
-    const [r, c, m] = await Promise.all([
-      fetch(`/api/readings${params.toString() ? `?${params}` : ""}`).then(r => r.json()),
-      fetch("/api/customers").then(r => r.json()),
-      fetch("/api/meters").then(r => r.json()),
-    ]);
+    let r: MeterReading[], c: Customer[], m: Meter[];
+    try {
+      [r, c, m] = await Promise.all([
+        apiGet<MeterReading[]>(`/api/readings${params.toString() ? `?${params}` : ""}`),
+        apiGet<Customer[]>("/api/customers"),
+        apiGet<Meter[]>("/api/meters"),
+      ]);
+    } catch (err) {
+      toast.error(`Could not load readings: ${errorText(err)}`);
+      return;
+    }
     setReadings(r);
     setCustomers(c);
     setMeters(m);
@@ -86,18 +93,28 @@ export default function ReadingsPage() {
     if (!meter) { toast.error("Select a meter first"); return; }
     setPulling(true);
     try {
-      const r = await fetch("/api/modbus/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip: meter.meterIp, port: meter.meterPort, unitId: meter.meterUnitId, t1Register: meter.meterT1Register, t2Register: meter.meterT2Register }),
+      const result = await apiSend<{
+        success: boolean;
+        error?: string;
+        tariff1Kwh?: number;
+        tariff2Kwh?: number;
+        tariff3Kwh?: number;
+        tariff4Kwh?: number;
+      }>("/api/modbus/read", "POST", {
+        ip: meter.meterIp,
+        port: meter.meterPort,
+        unitId: meter.meterUnitId,
+        t1Register: meter.meterT1Register,
+        t2Register: meter.meterT2Register,
       });
-      const result = await r.json();
       if (result.success) {
         setForm(f => ({ ...f, readingDate: nowForInput(), tariff1Kwh: String(result.tariff1Kwh), tariff2Kwh: String(result.tariff2Kwh), tariff3Kwh: result.tariff3Kwh !== undefined ? String(result.tariff3Kwh) : f.tariff3Kwh, tariff4Kwh: result.tariff4Kwh !== undefined ? String(result.tariff4Kwh) : f.tariff4Kwh, readMethod: "modbus" }));
         toast.success("Meter read successfully");
       } else {
         toast.error(`Modbus error: ${result.error}`);
       }
+    } catch (err) {
+      toast.error(`Could not read meter: ${errorText(err)}`);
     } finally {
       setPulling(false);
     }
@@ -110,25 +127,23 @@ export default function ReadingsPage() {
     }
     setLoading(true);
     try {
-      await fetch("/api/readings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customerId: form.customerId,
-          meterId: form.meterId || undefined,
-          readingDate: form.readingDate,
-          tariff1Kwh: parseFloat(form.tariff1Kwh),
-          tariff2Kwh: form.tariff2Kwh !== "" ? parseFloat(form.tariff2Kwh) : 0,
-          ...(form.tariff3Kwh !== "" && { tariff3Kwh: parseFloat(form.tariff3Kwh) }),
-          ...(form.tariff4Kwh !== "" && { tariff4Kwh: parseFloat(form.tariff4Kwh) }),
-          readMethod: form.readMethod,
-          notes: form.notes,
-        }),
+      await apiSend("/api/readings", "POST", {
+        customerId: form.customerId,
+        meterId: form.meterId || undefined,
+        readingDate: form.readingDate,
+        tariff1Kwh: parseFloat(form.tariff1Kwh),
+        tariff2Kwh: form.tariff2Kwh !== "" ? parseFloat(form.tariff2Kwh) : 0,
+        ...(form.tariff3Kwh !== "" && { tariff3Kwh: parseFloat(form.tariff3Kwh) }),
+        ...(form.tariff4Kwh !== "" && { tariff4Kwh: parseFloat(form.tariff4Kwh) }),
+        readMethod: form.readMethod,
+        notes: form.notes,
       });
       toast.success("Reading saved");
       setShowForm(false);
       setForm({ customerId: "", meterId: "", readingDate: nowForInput(), tariff1Kwh: "", tariff2Kwh: "", tariff3Kwh: "", tariff4Kwh: "", readMethod: "manual", notes: "" });
       load();
+    } catch (err) {
+      toast.error(`Could not save reading: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -151,27 +166,20 @@ export default function ReadingsPage() {
     if (!editReading) return;
     setLoading(true);
     try {
-      const r = await fetch(`/api/readings/${editReading.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          readingDate: editForm.readingDate,
-          tariff1Kwh: parseFloat(editForm.tariff1Kwh),
-          tariff2Kwh: editForm.tariff2Kwh !== "" ? parseFloat(editForm.tariff2Kwh) : 0,
-          ...(editForm.tariff3Kwh !== "" && { tariff3Kwh: parseFloat(editForm.tariff3Kwh) }),
-          ...(editForm.tariff4Kwh !== "" && { tariff4Kwh: parseFloat(editForm.tariff4Kwh) }),
-          readMethod: editForm.readMethod,
-          notes: editForm.notes,
-        }),
+      await apiSend(`/api/readings/${editReading.id}`, "PATCH", {
+        readingDate: editForm.readingDate,
+        tariff1Kwh: parseFloat(editForm.tariff1Kwh),
+        tariff2Kwh: editForm.tariff2Kwh !== "" ? parseFloat(editForm.tariff2Kwh) : 0,
+        ...(editForm.tariff3Kwh !== "" && { tariff3Kwh: parseFloat(editForm.tariff3Kwh) }),
+        ...(editForm.tariff4Kwh !== "" && { tariff4Kwh: parseFloat(editForm.tariff4Kwh) }),
+        readMethod: editForm.readMethod,
+        notes: editForm.notes,
       });
-      if (r.ok) {
-        toast.success("Reading updated");
-        setEditReading(null);
-        load();
-      } else {
-        const e = await r.json();
-        toast.error(e.error ?? "Failed to update");
-      }
+      toast.success("Reading updated");
+      setEditReading(null);
+      load();
+    } catch (err) {
+      toast.error(`Failed to update reading: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -179,28 +187,35 @@ export default function ReadingsPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this reading?")) return;
-    const r = await fetch(`/api/readings/${id}`, { method: "DELETE" });
-    if (r.ok) {
+    try {
+      await apiSend(`/api/readings/${id}`, "DELETE");
       toast.success("Reading deleted");
       load();
-    } else {
-      const e = await r.json();
-      toast.error(e.error ?? "Failed to delete");
+    } catch (err) {
+      toast.error(`Failed to delete reading: ${errorText(err)}`);
     }
   }
 
   async function exportCSV() {
     if (!selectedMeter) return;
-    const r = await fetch(`/api/meters/${selectedMeter.id}/csv`);
-    if (!r.ok) { toast.error("Export failed"); return; }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `meter-${selectedMeter.id}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("CSV exported");
+    try {
+      const r = await fetch(`/api/meters/${selectedMeter.id}/csv`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => null) as { error?: string } | null;
+        toast.error(`Export failed: ${body?.error ?? `${r.status} ${r.statusText}`}`);
+        return;
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `meter-${selectedMeter.id}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("CSV exported");
+    } catch (err) {
+      toast.error(`Export failed: ${errorText(err)}`);
+    }
   }
 
   async function importCSV(e: React.ChangeEvent<HTMLInputElement>) {
@@ -214,13 +229,15 @@ export default function ReadingsPage() {
         headers: { "Content-Type": "text/csv" },
         body: text,
       });
-      const result = await r.json();
+      const result = await r.json() as { imported?: number; updated?: number; skipped?: number; error?: string };
       if (r.ok) {
         toast.success(`Imported ${result.imported} new, updated ${result.updated}, skipped ${result.skipped}`);
         load();
       } else {
-        toast.error(result.error ?? "Import failed");
+        toast.error(result.error ?? `Import failed (${r.status} ${r.statusText})`);
       }
+    } catch (err) {
+      toast.error(`Import failed: ${errorText(err)}`);
     } finally {
       setImporting(false);
       if (csvImportRef.current) csvImportRef.current.value = "";
@@ -231,17 +248,11 @@ export default function ReadingsPage() {
     if (selected.size === 0) return;
     setMarkingBilled(true);
     try {
-      const r = await fetch("/api/readings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected], billedStatus: billed ? "billed" : "unbilled" }),
-      });
-      if (r.ok) {
-        toast.success(billed ? `Marked ${selected.size} reading(s) as billed` : `Marked ${selected.size} reading(s) as unbilled`);
-        load();
-      } else {
-        toast.error("Failed to update readings");
-      }
+      await apiSend("/api/readings", "PATCH", { ids: [...selected], billedStatus: billed ? "billed" : "unbilled" });
+      toast.success(billed ? `Marked ${selected.size} reading(s) as billed` : `Marked ${selected.size} reading(s) as unbilled`);
+      load();
+    } catch (err) {
+      toast.error(`Failed to update readings: ${errorText(err)}`);
     } finally {
       setMarkingBilled(false);
     }
@@ -252,18 +263,11 @@ export default function ReadingsPage() {
     if (!confirm(`Delete ${selected.size} reading(s)? This cannot be undone.`)) return;
     setDeleting(true);
     try {
-      const r = await fetch("/api/readings", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected] }),
-      });
-      if (r.ok) {
-        toast.success(`Deleted ${selected.size} reading(s)`);
-        load();
-      } else {
-        const e = await r.json();
-        toast.error(e.error ?? "Failed to delete readings");
-      }
+      await apiSend("/api/readings", "DELETE", { ids: [...selected] });
+      toast.success(`Deleted ${selected.size} reading(s)`);
+      load();
+    } catch (err) {
+      toast.error(`Failed to delete readings: ${errorText(err)}`);
     } finally {
       setDeleting(false);
     }
@@ -273,17 +277,11 @@ export default function ReadingsPage() {
     if (selected.size === 0) return;
     setArchiving(true);
     try {
-      const r = await fetch("/api/readings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected], archived: archive }),
-      });
-      if (r.ok) {
-        toast.success(archive ? `Archived ${selected.size} reading(s)` : `Unarchived ${selected.size} reading(s)`);
-        load();
-      } else {
-        toast.error("Failed to update readings");
-      }
+      await apiSend("/api/readings", "PATCH", { ids: [...selected], archived: archive });
+      toast.success(archive ? `Archived ${selected.size} reading(s)` : `Unarchived ${selected.size} reading(s)`);
+      load();
+    } catch (err) {
+      toast.error(`Failed to update readings: ${errorText(err)}`);
     } finally {
       setArchiving(false);
     }

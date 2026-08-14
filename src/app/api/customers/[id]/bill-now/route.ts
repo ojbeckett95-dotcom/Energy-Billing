@@ -1,9 +1,10 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateBillId, getActiveTariffId, saveBillPDFToFile } from "@/lib/db";
 import { generateBillPDF } from "@/lib/pdf-generator";
 import type { Bill } from "@/lib/types";
 
-export async function POST(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
 
@@ -109,7 +110,14 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
         bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
       }
     } catch (err) {
+      // Without a PDF the bill is incomplete, so leave nothing behind and let
+      // the next run bill this meter again.
       console.error(`bill-now PDF error for ${meter.name}:`, err);
+      results.push({
+        meter: meter.name,
+        error: `PDF generation failed, bill not created: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
     }
 
     // Save bill + mark readings as billed + update lastAutoBilledAt
@@ -136,4 +144,4 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
   const failed = results.filter((r) => r.error).length;
 
   return NextResponse.json({ results, generated, failed });
-}
+});

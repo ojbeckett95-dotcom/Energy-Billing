@@ -5,6 +5,7 @@ import { Mail, Save, TestTube, CheckCircle, XCircle } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import type { EmailSettings } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const DEFAULT: EmailSettings = {
   smtpHost: "",
@@ -51,7 +52,9 @@ export default function EmailSettingsPage() {
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   useEffect(() => {
-    fetch("/api/email-settings").then(r => r.json()).then(s => setSettings(prev => ({ ...prev, ...s })));
+    apiGet<Partial<EmailSettings>>("/api/email-settings")
+      .then(s => setSettings(prev => ({ ...prev, ...s })))
+      .catch(err => toast.error(`Could not load email settings: ${errorText(err)}`));
   }, []);
 
   function set<K extends keyof EmailSettings>(key: K, value: EmailSettings[K]) {
@@ -61,36 +64,28 @@ export default function EmailSettingsPage() {
   async function save() {
     setLoading(true);
     try {
-      await fetch("/api/email-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settings),
-      });
+      await apiSend("/api/email-settings", "PUT", settings);
       toast.success("Email settings saved");
+    } catch (err) {
+      toast.error(`Could not save email settings: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
   }
 
   async function testConnection() {
-    // Save first
-    await fetch("/api/email-settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
-    });
     setTesting(true);
     setTestResult(null);
     try {
-      const r = await fetch("/api/email-settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "test" }),
-      });
-      const result = await r.json();
+      // Save first so the test uses the values on screen
+      await apiSend("/api/email-settings", "PUT", settings);
+      const result = await apiSend<{ success: boolean; error?: string }>("/api/email-settings", "POST", { action: "test" });
       setTestResult(result);
       if (result.success) toast.success("SMTP connection successful!");
       else toast.error(`Connection failed: ${result.error}`);
+    } catch (err) {
+      setTestResult({ success: false, error: errorText(err) });
+      toast.error(`Connection failed: ${errorText(err)}`);
     } finally {
       setTesting(false);
     }

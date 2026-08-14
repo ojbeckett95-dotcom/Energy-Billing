@@ -5,6 +5,7 @@ import { Palette, Upload, Save, RotateCcw } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import type { BrandingSettings } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const DEFAULT_BRANDING: BrandingSettings = {
   companyName: "",
@@ -33,7 +34,9 @@ export default function BrandingPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetch("/api/branding").then(r => r.json()).then(setBranding);
+    apiGet<BrandingSettings>("/api/branding")
+      .then(setBranding)
+      .catch(err => toast.error(`Could not load branding settings: ${errorText(err)}`));
   }, []);
 
   function set(key: keyof BrandingSettings, value: string | number) {
@@ -43,12 +46,10 @@ export default function BrandingPage() {
   async function save() {
     setLoading(true);
     try {
-      await fetch("/api/branding", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(branding),
-      });
+      await apiSend("/api/branding", "PUT", branding);
       toast.success("Branding settings saved");
+    } catch (err) {
+      toast.error(`Could not save branding settings: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
