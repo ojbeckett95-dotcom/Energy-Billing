@@ -91,6 +91,13 @@ if (!fs.existsSync(serverJs)) {
   console.log("  Done.");
 }
 
+// ── Never ship the build machine's database or PDFs ───────────────────────────
+const tracedData = path.join(standalone, "data");
+if (fs.existsSync(tracedData)) {
+  console.log("\n▶ Removing traced data/ from standalone output...");
+  fs.rmSync(tracedData, { recursive: true, force: true });
+}
+
 // ── 2 & 3. Copy static assets ─────────────────────────────────────────────────
 // server.js uses distDir=".next-prod" so static files must live at
 // standalone/.next-prod/static/ — NOT standalone/.next/static/
