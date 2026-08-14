@@ -70,12 +70,20 @@ export default function SystemSettingsPage() {
   async function saveScheduler() {
     setSavingScheduler(true);
     try {
-      await fetch("/api/scheduler-settings", {
+      const r = await fetch("/api/scheduler-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(scheduler),
       });
-      toast.success("Scheduler settings saved");
+      const body = await r.json().catch(() => null);
+      if (!r.ok) {
+        toast.error(body?.error ?? "Could not save settings");
+        return;
+      }
+      setScheduler(prev => ({ ...prev, ...body }));
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Could not save settings");
     } finally {
       setSavingScheduler(false);
     }
