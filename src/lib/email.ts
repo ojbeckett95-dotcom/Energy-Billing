@@ -1,18 +1,6 @@
 import nodemailer from "nodemailer";
 import type { Bill, Customer, BrandingSettings, EmailSettings, Meter } from "./types";
-import { format } from "date-fns";
-
-function formatCurrency(amount: number): string {
-  return `£${amount.toFixed(2)}`;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return format(new Date(dateStr), "dd/MM/yyyy");
-  } catch {
-    return dateStr;
-  }
-}
+import { formatCurrency, formatDate } from "./format";
 
 function applyTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
@@ -150,7 +138,7 @@ export async function sendBillEmailFailureNotification(
         `Customer email:  ${customer.email}`,
         `Account:         ${customer.accountNumber}`,
         `Billing period:  ${billingPeriod}`,
-        `Total:           £${bill.total.toFixed(2)}`,
+        `Total:           ${formatCurrency(bill.total)}`,
         `Bill ID:         ${bill.id.toUpperCase()}`,
         ``,
         `Failure reason:`,

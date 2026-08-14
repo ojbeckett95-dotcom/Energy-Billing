@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateId } from "@/lib/db";
+import { notFound } from "@/lib/api-response";
 
 // GET /api/meters/[id]/csv — export all readings for this meter as CSV
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const data = readData();
   const meter = data.meters.find((m) => m.id === id);
-  if (!meter) return NextResponse.json({ error: "Meter not found" }, { status: 404 });
+  if (!meter) return notFound("Meter not found");
 
   const readings = data.meterReadings.filter((r) => r.meterId === id);
 
@@ -38,7 +39,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const data = readData();
   const meter = data.meters.find((m) => m.id === id);
-  if (!meter) return NextResponse.json({ error: "Meter not found" }, { status: 404 });
+  if (!meter) return notFound("Meter not found");
 
   const text = await req.text();
   const lines = text.split(/\r?\n/).filter((l) => l.trim());

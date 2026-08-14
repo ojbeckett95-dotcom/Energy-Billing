@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import type { AppData, AuthSettings, BrandingSettings, EmailSettings, MeterReading, SchedulerSettings } from "./types";
+import { resolveActiveTariffId } from "./tariff-schedule";
 
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), "data");
@@ -186,9 +187,5 @@ export function archiveOldReadings(months: number): { archived: number; archiveF
 /** Returns the tariff rate ID active for a customer on a given date (YYYY-MM-DD).
  *  Looks at per-customer scheduled changes first, falls back to customer.tariffPlanId. */
 export function getActiveTariffId(customerId: string, date: string, data: AppData): string {
-  const schedule = data.customerTariffSchedules
-    .filter(s => s.customerId === customerId && s.effectiveFrom <= date)
-    .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
-  if (schedule) return schedule.tariffRateId;
-  return data.customers.find(c => c.id === customerId)?.tariffPlanId ?? "";
+  return resolveActiveTariffId(customerId, date, data.customerTariffSchedules, data.customers);
 }
