@@ -139,7 +139,10 @@ export default function CustomersPage() {
         toast.warning(`No bills generated: ${reasons.join("; ")}`);
       } else {
         toast.success(`${result.generated} bill${result.generated !== 1 ? "s" : ""} generated`);
-        if (result.failed > 0) toast.warning(`${result.failed} meter(s) skipped — check readings/tariff`);
+        if (result.failed > 0) {
+          const reasons = result.results.filter((x) => x.error).map((x) => `${x.meter}: ${x.error}`);
+          toast.warning(`${result.failed} meter(s) skipped — ${reasons.join("; ")}`);
+        }
       }
       load();
     } catch (err) {
