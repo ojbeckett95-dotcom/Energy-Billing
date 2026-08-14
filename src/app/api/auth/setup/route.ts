@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { hashPassword, createSessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
+import { badRequest } from "@/lib/api-response";
 
 // Only callable when no password is set yet (first-run setup)
 export async function POST(req: NextRequest) {
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
 
   const { password } = await req.json() as { password: string };
   if (!password || password.length < 6) {
-    return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+    return badRequest("Password must be at least 6 characters");
   }
 
   data.authSettings.passwordHash = await hashPassword(password);

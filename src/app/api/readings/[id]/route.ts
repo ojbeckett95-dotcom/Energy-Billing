@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
+import { conflict, notFound } from "@/lib/api-response";
+import { isLinkedToExistingBill } from "@/lib/readings";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const body = await req.json() as { readingDate?: string; tariff1Kwh?: number; tariff2Kwh?: number; tariff3Kwh?: number; tariff4Kwh?: number; readMethod?: string; notes?: string };
   const data = readData();
   const idx = data.meterReadings.findIndex((r) => r.id === id);
-  if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (idx === -1) return notFound();
 
   const reading = data.meterReadings[idx];
-  const billExists = reading.billedInBillId && reading.billedInBillId !== "unlinked" && reading.billedInBillId !== "manual" && data.bills.some(b => b.id === reading.billedInBillId);
-  if (billExists) {
-    return NextResponse.json(
-      { error: "Cannot edit a reading that is linked to a bill. Delete the bill first." },
-      { status: 409 }
-    );
+  if (isLinkedToExistingBill(reading, data.bills)) {
+    return conflict("Cannot edit a reading that is linked to a bill. Delete the bill first.");
   }
 
   data.meterReadings[idx] = {
@@ -35,14 +33,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params;
   const data = readData();
   const reading = data.meterReadings.find((r) => r.id === id);
-  if (!reading) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!reading) return notFound();
 
-  const billExists = reading.billedInBillId && reading.billedInBillId !== "unlinked" && reading.billedInBillId !== "manual" && data.bills.some(b => b.id === reading.billedInBillId);
-  if (billExists) {
-    return NextResponse.json(
-      { error: "Reading is linked to a bill — delete the bill first." },
-      { status: 409 }
-    );
+  if (isLinkedToExistingBill(reading, data.bills)) {
+    return conflict("Reading is linked to a bill — delete the bill first.");
   }
 
   data.meterReadings = data.meterReadings.filter((r) => r.id !== id);

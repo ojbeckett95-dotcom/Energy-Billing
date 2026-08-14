@@ -1,11 +1,13 @@
 // Background scheduler: auto meter readings + auto billing
 // Run with: bun run scheduler.ts
 
-import { readData, writeData, generateBillId, generateId, getActiveTariffId, saveBillPDFToFile } from "./src/lib/db";
+import { readData, writeData, generateId, getActiveTariffId } from "./src/lib/db";
 import { readMeterTCP } from "./src/lib/modbus";
-import { generateBillPDF } from "./src/lib/pdf-generator";
+import { buildBill, markReadingsBilled, resolveMeterBillingWindow } from "./src/lib/billing";
+import { loadBillPDF, renderAndAttachBillPDF } from "./src/lib/bill-pdf";
+import { formatCurrency } from "./src/lib/format";
 import { sendBillEmail, sendBillEmailFailureNotification } from "./src/lib/email";
-import type { Bill, MeterReading, Customer, SchedulerSettings } from "./src/lib/types";
+import type { MeterReading, Customer, SchedulerSettings } from "./src/lib/types";
 
 const CHECK_INTERVAL_MS = 60_000; // check every minute
 
@@ -124,7 +126,7 @@ async function runAutoBilling() {
     return; // Not yet time today
   }
 
-  const { customers, tariffRates, meterReadings, bills } = data;
+  const { customers, tariffRates } = data;
 
   console.log(`[scheduler] Auto-billing: checking ${customers.length} customer(s)...`);
   let ok = 0;
@@ -141,43 +143,14 @@ async function runAutoBilling() {
 
     for (const meter of customerMeters) {
       try {
-        // Filter readings by this meter
-        const meterReadingsForBilling = meterReadings
-          .filter(r => r.meterId === meter.id)
-          .sort((a, b) => a.readingDate.localeCompare(b.readingDate));
-
-        if (meterReadingsForBilling.length === 0) {
-          console.warn(`[scheduler]   skip ${customer.name}/${meter.name}: no readings recorded`);
+        const window = resolveMeterBillingWindow(meter.id, customer.id, data, todayStr);
+        if ("error" in window) {
+          console.warn(`[scheduler]   skip ${customer.name}/${meter.name}: ${window.error}`);
           continue;
         }
-
-        // Find latest bill for this specific meter to determine opening reading
-        const latestBill = bills
-          .filter(b => b.customerId === customer.id && b.meterId === meter.id)
-          .sort((a, b) => b.billingPeriodEnd.localeCompare(a.billingPeriodEnd))[0];
-
-        const openingReading = latestBill
-          ? (meterReadings.find(r => r.id === latestBill.closingReadingId) ?? meterReadingsForBilling[0])
-          : meterReadingsForBilling[0];
-
-        const closingReading = meterReadingsForBilling[meterReadingsForBilling.length - 1];
-
-        // Determine billing period
-        let billingPeriodStart: string;
-        let billingPeriodEnd: string;
-
-        if (openingReading.id === closingReading.id) {
-          // No new reading since last bill — still bill for standing charge up to today
-          billingPeriodStart = latestBill?.billingPeriodEnd ?? openingReading.readingDate.substring(0, 10);
-          billingPeriodEnd = todayStr;
-          if (billingPeriodStart >= billingPeriodEnd) {
-            console.warn(`[scheduler]   skip ${customer.name}/${meter.name}: no new reading and period is 0 days`);
-            continue;
-          }
+        const { openingReading, closingReading, billingPeriodStart, billingPeriodEnd } = window;
+        if (window.standingChargeOnly) {
           console.log(`[scheduler]   note: ${customer.name}/${meter.name}: no new reading — billing standing charge only`);
-        } else {
-          billingPeriodStart = openingReading.readingDate.substring(0, 10);
-          billingPeriodEnd = closingReading.readingDate.substring(0, 10);
         }
 
         const activeTariffId = getActiveTariffId(customer.id, billingPeriodStart, data);
@@ -188,76 +161,21 @@ async function runAutoBilling() {
           continue;
         }
 
-        const tariff1Usage = Math.max(0, closingReading.tariff1Kwh - openingReading.tariff1Kwh);
-        const tariff2Usage = tariff.tariff2Enabled !== false
-          ? Math.max(0, closingReading.tariff2Kwh - openingReading.tariff2Kwh)
-          : 0;
-        const tariff3Usage = tariff.tariff3Enabled
-          ? Math.max(0, (closingReading.tariff3Kwh ?? 0) - (openingReading.tariff3Kwh ?? 0))
-          : 0;
-        const tariff4Usage = tariff.tariff4Enabled
-          ? Math.max(0, (closingReading.tariff4Kwh ?? 0) - (openingReading.tariff4Kwh ?? 0))
-          : 0;
-        const tariff1Cost = tariff1Usage * tariff.tariff1RatePerKwh;
-        const tariff2Cost = tariff2Usage * tariff.tariff2RatePerKwh;
-        const tariff3Cost = tariff3Usage * (tariff.tariff3RatePerKwh ?? 0);
-        const tariff4Cost = tariff4Usage * (tariff.tariff4RatePerKwh ?? 0);
+        const bill = buildBill({
+          customer, tariff, meter, openingReading, closingReading, billingPeriodStart, billingPeriodEnd,
+        });
 
-        const billingDays = Math.ceil(
-          (new Date(billingPeriodEnd).getTime() - new Date(billingPeriodStart).getTime()) /
-            (1000 * 60 * 60 * 24),
+        await renderAndAttachBillPDF(
+          bill, customer, tariff, data.branding, openingReading, closingReading, meter,
+          data.schedulerSettings.pdfStoragePath, `${customer.name}/${meter.name}`,
         );
-        const standingCharge = billingDays * tariff.standingChargePerDay;
-        const subtotal = tariff1Cost + tariff2Cost + tariff3Cost + tariff4Cost + standingCharge;
-        const vat = subtotal * (tariff.vatRate / 100);
-        const total = subtotal + vat;
-
-        const bill: Bill = {
-          id: generateBillId(customer.accountNumber, meter.serialNumber, new Date()),
-          customerId: customer.id,
-          meterId: meter.id,
-          tariffRateId: tariff.id,
-          billingPeriodStart,
-          billingPeriodEnd,
-          openingReadingId: openingReading.id,
-          closingReadingId: closingReading.id,
-          tariff1Usage,
-          tariff2Usage,
-          ...(tariff.tariff3Enabled && { tariff3Usage, tariff3Cost }),
-          ...(tariff.tariff4Enabled && { tariff4Usage, tariff4Cost }),
-          tariff1Cost,
-          tariff2Cost,
-          standingCharge,
-          subtotal,
-          vat,
-          total,
-          status: "draft",
-          generatedAt: new Date().toISOString(),
-        };
-
-        // Generate PDF
-        try {
-          const pdfBytes = await generateBillPDF(
-            bill, customer, tariff, data.branding, openingReading, closingReading, meter,
-          );
-          const storagePath = data.schedulerSettings.pdfStoragePath;
-          if (storagePath) {
-            bill.pdfFilePath = saveBillPDFToFile(bill.id, pdfBytes, storagePath);
-          } else {
-            bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
-          }
-        } catch (err) {
-          console.error(`[scheduler]   PDF error for ${customer.name}/${meter.name}:`, err);
-        }
 
         // Save bill to disk immediately (before email attempt, so it's never lost)
         const fresh = readData();
         fresh.bills.push(bill);
-        fresh.meterReadings = fresh.meterReadings.map(r => {
-          if (r.meterId !== meter.id) return r;
-          if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
-          return { ...r, billedInBillId: bill.id };
-        });
+        fresh.meterReadings = markReadingsBilled(
+          fresh.meterReadings, bill, openingReading.readingDate, closingReading.readingDate,
+        );
         const custIdx = fresh.customers.findIndex(c => c.id === customer.id);
         if (custIdx >= 0) {
           fresh.customers[custIdx] = { ...fresh.customers[custIdx], lastAutoBilledAt: todayStr };
@@ -266,11 +184,8 @@ async function runAutoBilling() {
         ok++;
 
         // Send email (after saving — a hang or failure here won't lose the bill)
-        const hasPdf = bill.pdfBase64 || bill.pdfFilePath;
-        if (data.schedulerSettings.autoBillingSendEmail && customer.email && hasPdf) {
-          const pdfBytes = bill.pdfFilePath
-            ? (await import("fs")).readFileSync(bill.pdfFilePath)
-            : Buffer.from(bill.pdfBase64!, "base64");
+        const pdfBytes = loadBillPDF(bill);
+        if (data.schedulerSettings.autoBillingSendEmail && customer.email && pdfBytes) {
           const emailResult = await sendBillEmail(
             bill, customer, data.branding, data.emailSettings, pdfBytes, meter,
           );
@@ -279,16 +194,16 @@ async function runAutoBilling() {
           if (billIdx >= 0) {
             if (emailResult.success) {
               billUpdate.bills[billIdx] = { ...billUpdate.bills[billIdx], status: "sent", sentAt: new Date().toISOString() };
-              console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — emailed`);
+              console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: ${formatCurrency(bill.total)} — emailed`);
             } else {
               billUpdate.bills[billIdx] = { ...billUpdate.bills[billIdx], emailError: emailResult.error ?? "Unknown email error" };
-              console.warn(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — email failed: ${emailResult.error}`);
+              console.warn(`[scheduler]   ✓ ${customer.name}/${meter.name}: ${formatCurrency(bill.total)} — email failed: ${emailResult.error}`);
               await sendBillEmailFailureNotification(customer, bill, emailResult.error ?? "Unknown", data.emailSettings, data.branding);
             }
             writeData(billUpdate);
           }
-        } else if (!data.schedulerSettings.autoBillingSendEmail || !customer.email || !hasPdf) {
-          console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — saved as draft`);
+        } else {
+          console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: ${formatCurrency(bill.total)} — saved as draft`);
         }
       } catch (err) {
         console.error(`[scheduler]   error for ${customer.name}/${meter.name}:`, err);

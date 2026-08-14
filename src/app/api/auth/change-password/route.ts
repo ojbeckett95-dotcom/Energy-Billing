@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { verifyPassword, hashPassword } from "@/lib/auth-server";
+import { badRequest } from "@/lib/api-response";
 
 export async function POST(req: NextRequest) {
   const { currentPassword, newPassword } = await req.json() as { currentPassword: string; newPassword: string };
 
   if (!newPassword || newPassword.length < 6) {
-    return NextResponse.json({ error: "New password must be at least 6 characters" }, { status: 400 });
+    return badRequest("New password must be at least 6 characters");
   }
 
   const data = readData();

@@ -6,6 +6,7 @@ import { Users, FileText, Zap, Activity, TrendingUp, Clock, CheckCircle, Send } 
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { format } from "date-fns";
+import { formatCurrency } from "@/lib/format";
 
 interface DashboardData {
   totalCustomers: number;
@@ -107,7 +108,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                 <YAxis tickFormatter={(v) => `£${v}`} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
-                <Tooltip formatter={(v: number) => [`£${v.toFixed(2)}`, "Revenue"]} cursor={{ fill: "#f8fafc" }} />
+                <Tooltip formatter={(v: number) => [formatCurrency(v), "Revenue"]} cursor={{ fill: "#f8fafc" }} />
                 <Bar dataKey="revenue" fill="#3b82f6" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>

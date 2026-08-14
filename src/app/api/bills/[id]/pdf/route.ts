@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData } from "@/lib/db";
-import fs from "fs";
+import { notFound } from "@/lib/api-response";
+import { loadBillPDF } from "@/lib/bill-pdf";
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const data = readData();
   const bill = data.bills.find((b) => b.id === id);
-  if (!bill) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!bill) return notFound();
 
-  let pdfBytes: Buffer;
-  if (bill.pdfFilePath && fs.existsSync(bill.pdfFilePath)) {
-    pdfBytes = fs.readFileSync(bill.pdfFilePath);
-  } else if (bill.pdfBase64) {
-    pdfBytes = Buffer.from(bill.pdfBase64, "base64");
-  } else {
-    return NextResponse.json({ error: "No PDF available" }, { status: 404 });
-  }
+  const pdfBytes = loadBillPDF(bill);
+  if (!pdfBytes) return notFound("No PDF available");
 
   return new NextResponse(pdfBytes, {
     headers: {

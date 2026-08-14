@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { testSmtpConnection } from "@/lib/email";
 import type { EmailSettings } from "@/lib/types";
+import { badRequest } from "@/lib/api-response";
 
 export async function GET() {
   const data = readData();
@@ -29,5 +30,5 @@ export async function POST(req: NextRequest) {
     const result = await testSmtpConnection(data.emailSettings);
     return NextResponse.json(result);
   }
-  return NextResponse.json({ error: "Unknown action" }, { status: 400 });
+  return badRequest("Unknown action");
 }

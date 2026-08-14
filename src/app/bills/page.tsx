@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 import { Plus, FileText, Send, Download, Trash2, Eye, CheckCircle, Clock, RefreshCw, AlertTriangle, RotateCcw } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
+import { formatCurrency } from "@/lib/format";
 import { format } from "date-fns";
+import { resolveActiveTariffId } from "@/lib/tariff-schedule";
 import type { Bill, Customer, TariffRate, MeterReading, CustomerTariffSchedule, Meter } from "@/lib/types";
 
 const statusColors: Record<string, { bg: string; text: string; icon: React.ElementType }> = {
@@ -62,11 +64,7 @@ export default function BillsPage() {
   }
 
   function getActiveTariffId(customerId: string, date: string): string {
-    const match = tariffSchedules
-      .filter(s => s.customerId === customerId && s.effectiveFrom <= date)
-      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0];
-    if (match) return match.tariffRateId;
-    return customers.find(c => c.id === customerId)?.tariffPlanId ?? "";
+    return resolveActiveTariffId(customerId, date, tariffSchedules, customers);
   }
 
   useEffect(() => { load(); }, []);
@@ -468,7 +466,7 @@ export default function BillsPage() {
                         ? custReadings.find(r => r.readingDate.startsWith(startDate))
                         : undefined;
                       const activeTariff = startDate
-                        ? (tariffSchedules.filter(s => s.customerId === cid && s.effectiveFrom <= startDate).sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0]?.tariffRateId ?? customer?.tariffPlanId ?? "")
+                        ? getActiveTariffId(cid, startDate)
                         : (customer?.tariffPlanId ?? "");
                       setForm({
                         ...form,
@@ -646,13 +644,13 @@ function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: 
           <Row label="Invoice #" value={bill.id.toUpperCase()} />
           <Row label="Period" value={`${format(new Date(bill.billingPeriodStart), "dd/MM/yyyy")} – ${format(new Date(bill.billingPeriodEnd), "dd/MM/yyyy")}`} />
           <div className="border-t border-slate-100 pt-3 mt-3">
-            <Row label={`Tariff 1 (${bill.tariff1Usage.toFixed(2)} kWh)`} value={`£${bill.tariff1Cost.toFixed(2)}`} />
-            <Row label={`Tariff 2 (${bill.tariff2Usage.toFixed(2)} kWh)`} value={`£${bill.tariff2Cost.toFixed(2)}`} />
-            {bill.tariff3Usage !== undefined && <Row label={`Tariff 3 (${bill.tariff3Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff3Cost ?? 0).toFixed(2)}`} />}
-            {bill.tariff4Usage !== undefined && <Row label={`Tariff 4 (${bill.tariff4Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff4Cost ?? 0).toFixed(2)}`} />}
-            <Row label="Standing Charge" value={`£${bill.standingCharge.toFixed(2)}`} />
-            <Row label="Subtotal" value={`£${bill.subtotal.toFixed(2)}`} />
-            <Row label="VAT" value={`£${bill.vat.toFixed(2)}`} />
+            <Row label={`Tariff 1 (${bill.tariff1Usage.toFixed(2)} kWh)`} value={formatCurrency(bill.tariff1Cost)} />
+            <Row label={`Tariff 2 (${bill.tariff2Usage.toFixed(2)} kWh)`} value={formatCurrency(bill.tariff2Cost)} />
+            {bill.tariff3Usage !== undefined && <Row label={`Tariff 3 (${bill.tariff3Usage.toFixed(2)} kWh)`} value={formatCurrency((bill.tariff3Cost ?? 0))} />}
+            {bill.tariff4Usage !== undefined && <Row label={`Tariff 4 (${bill.tariff4Usage.toFixed(2)} kWh)`} value={formatCurrency((bill.tariff4Cost ?? 0))} />}
+            <Row label="Standing Charge" value={formatCurrency(bill.standingCharge)} />
+            <Row label="Subtotal" value={formatCurrency(bill.subtotal)} />
+            <Row label="VAT" value={formatCurrency(bill.vat)} />
           </div>
           <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
             <span className="font-bold text-slate-900 text-base">Total Due</span>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
+import { notFound } from "@/lib/api-response";
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -14,7 +15,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const body = await req.json();
   const data = readData();
   const idx = data.customerTariffSchedules.findIndex(s => s.id === id);
-  if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (idx === -1) return notFound();
   data.customerTariffSchedules[idx] = { ...data.customerTariffSchedules[idx], ...body };
   writeData(data);
   return NextResponse.json(data.customerTariffSchedules[idx]);

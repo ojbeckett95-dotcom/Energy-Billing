@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateId } from "@/lib/db";
+import { conflict, parseIds } from "@/lib/api-response";
+import { isLinkedToExistingBill } from "@/lib/readings";
 import type { MeterReading } from "@/lib/types";
 
 export async function GET(req: NextRequest) {
@@ -66,21 +68,17 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/readings — bulk delete by IDs
 export async function DELETE(req: NextRequest) {
-  const body = await req.json() as { ids: string[] };
-  const { ids } = body;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: "ids array required" }, { status: 400 });
-  }
+  const parsed = parseIds(await req.json() as { ids?: unknown });
+  if ("error" in parsed) return parsed.error;
+  const { ids } = parsed;
+
   const data = readData();
   const idSet = new Set(ids);
-  const blocked: string[] = [];
-  for (const r of data.meterReadings) {
-    if (!idSet.has(r.id)) continue;
-    const billExists = r.billedInBillId && r.billedInBillId !== "unlinked" && r.billedInBillId !== "manual" && data.bills.some(b => b.id === r.billedInBillId);
-    if (billExists) blocked.push(r.id);
-  }
+  const blocked = data.meterReadings.filter(
+    (r) => idSet.has(r.id) && isLinkedToExistingBill(r, data.bills),
+  );
   if (blocked.length > 0) {
-    return NextResponse.json({ error: `${blocked.length} reading(s) are linked to existing bills and cannot be deleted.` }, { status: 409 });
+    return conflict(`${blocked.length} reading(s) are linked to existing bills and cannot be deleted.`);
   }
   data.meterReadings = data.meterReadings.filter(r => !idSet.has(r.id));
   writeData(data);
@@ -90,11 +88,12 @@ export async function DELETE(req: NextRequest) {
 // PATCH /api/readings — bulk update by IDs
 // Supports: { ids, archived: boolean } or { ids, billedStatus: "billed" | "unbilled" }
 export async function PATCH(req: NextRequest) {
-  const body = await req.json() as { ids: string[]; archived?: boolean; billedStatus?: "billed" | "unbilled" };
-  const { ids, archived, billedStatus } = body;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: "ids array required" }, { status: 400 });
-  }
+  const body = await req.json() as { ids?: unknown; archived?: boolean; billedStatus?: "billed" | "unbilled" };
+  const { archived, billedStatus } = body;
+  const parsed = parseIds(body);
+  if ("error" in parsed) return parsed.error;
+  const { ids } = parsed;
+
   const data = readData();
   const idSet = new Set(ids);
   data.meterReadings = data.meterReadings.map((r) => {
