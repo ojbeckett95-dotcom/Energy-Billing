@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Settings, Wifi, Info, Clock, RefreshCw, CalendarDays, Mail, Save, FolderOpen, FolderSearch, Network, Archive, RotateCcw, ShieldCheck } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 import type { SchedulerSettings } from "@/lib/types";
 
 const DEFAULT_SCHEDULER: SchedulerSettings = {
@@ -226,7 +226,7 @@ export default function SystemSettingsPage() {
                 {scheduler.lastAutoReadAt && (
                   <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
-                    Last run: {format(new Date(scheduler.lastAutoReadAt), "dd/MM/yyyy HH:mm")}
+                    Last run: {formatDateTime(scheduler.lastAutoReadAt)}
                   </p>
                 )}
                 <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -349,7 +349,7 @@ export default function SystemSettingsPage() {
                 {scheduler.lastAutoBillingAt && (
                   <p className="text-xs text-slate-400 flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
-                    Last run: {format(new Date(scheduler.lastAutoBillingAt), "dd/MM/yyyy")}
+                    Last run: {formatDate(scheduler.lastAutoBillingAt)}
                   </p>
                 )}
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">

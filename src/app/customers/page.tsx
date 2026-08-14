@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, User, Search, Gauge, CalendarClock, Server, Link2Off, RotateCcw, Zap } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDate } from "@/lib/format-date";
 import type { Customer, TariffRate, CustomerTariffSchedule, Meter } from "@/lib/types";
 
 const EMPTY_CUSTOMER: Omit<Customer, "id" | "createdAt" | "lastAutoBilledAt"> = {
@@ -228,7 +228,7 @@ export default function CustomersPage() {
                           {c.lastAutoBilledAt && (
                             <button
                               onClick={() => resetBillingCycle(c.id)}
-                              title={`Reset billing cycle (last billed: ${format(new Date(c.lastAutoBilledAt!), "dd/MM/yyyy")})`}
+                              title={`Reset billing cycle (last billed: ${formatDate(c.lastAutoBilledAt!)})`}
                               className="p-1.5 rounded-lg hover:bg-amber-50 text-slate-500 hover:text-amber-600 transition-colors"
                             >
                               <RotateCcw className="w-4 h-4" />
@@ -687,7 +687,7 @@ function TariffScheduleModal({ customer, tariffs, onClose }: {
                   <div key={s.id} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm ${isNext ? "bg-purple-50" : "bg-blue-50"}`}>
                     <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isNext ? "bg-purple-400" : "bg-blue-400"}`} />
                     <span className={`text-xs w-24 flex-shrink-0 ${isNext ? "text-purple-600" : "text-blue-600"}`}>
-                      {isNext ? "↑ " : ""}{format(new Date(s.effectiveFrom), "dd/MM/yyyy")}
+                      {isNext ? "↑ " : ""}{formatDate(s.effectiveFrom)}
                     </span>
                     <span className="font-medium text-slate-700 flex-1">{tariff?.name ?? "Unknown tariff"}</span>
                     {s.notes && <span className="text-xs text-slate-400 italic truncate max-w-[100px]">{s.notes}</span>}

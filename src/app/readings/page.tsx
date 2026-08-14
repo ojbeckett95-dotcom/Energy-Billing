@@ -5,6 +5,7 @@ import { Plus, Trash2, Activity, Wifi, RefreshCw, Pencil, Download, Upload } fro
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { formatDateTime } from "@/lib/format-date";
 import type { MeterReading, Customer, Meter } from "@/lib/types";
 
 const nowForInput = () => format(new Date(), "yyyy-MM-dd'T'HH:mm");
@@ -497,7 +498,7 @@ export default function ReadingsPage() {
                           : <span className="italic">Unknown</span>
                       ) : <span className="italic text-slate-400">Unassigned</span>}
                     </td>
-                    <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">{format(new Date(r.readingDate), "dd/MM/yyyy HH:mm")}</td>
+                    <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">{formatDateTime(r.readingDate)}</td>
                     <td className="px-5 py-3.5 text-right font-mono text-slate-800">{r.tariff1Kwh.toFixed(2)}</td>
                     <td className="px-5 py-3.5 text-right font-mono text-slate-800">{r.tariff2Kwh.toFixed(2)}</td>
                     {showT3Col && <td className="px-5 py-3.5 text-right font-mono text-slate-800">{r.tariff3Kwh !== undefined ? r.tariff3Kwh.toFixed(2) : "–"}</td>}
