@@ -1,7 +1,8 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await req.json() as { readingDate?: string; tariff1Kwh?: number; tariff2Kwh?: number; tariff3Kwh?: number; tariff4Kwh?: number; readMethod?: string; notes?: string };
   const data = readData();
@@ -29,9 +30,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   };
   writeData(data);
   return NextResponse.json(data.meterReadings[idx]);
-}
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const reading = data.meterReadings.find((r) => r.id === id);
@@ -48,4 +49,4 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   data.meterReadings = data.meterReadings.filter((r) => r.id !== id);
   writeData(data);
   return NextResponse.json({ success: true });
-}
+});

@@ -1,3 +1,4 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
@@ -6,7 +7,7 @@ const execFileAsync = promisify(execFile);
 
 // Opens a native OS folder-picker dialog on the server machine (works for local installs).
 // Query param: ?current=<path> to pre-select a folder.
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const current = new URL(req.url).searchParams.get("current") ?? "";
 
   try {
@@ -51,7 +52,8 @@ if ($result -eq 'OK') { Write-Output $f.SelectedPath }
         const selected = stdout.trim();
         if (!selected) return NextResponse.json({ cancelled: true });
         return NextResponse.json({ path: selected });
-      } catch {
+      } catch (zenityErr) {
+        console.error("[browse-folder] zenity unavailable, trying kdialog:", zenityErr);
         const args = ["--getexistingdirectory", current || (process.env.HOME ?? "/")];
         const { stdout } = await execFileAsync("kdialog", args, { timeout: 60_000 });
         const selected = stdout.trim();
@@ -67,4 +69,4 @@ if ($result -eq 'OK') { Write-Output $f.SelectedPath }
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
-}
+});

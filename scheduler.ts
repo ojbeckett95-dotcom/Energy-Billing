@@ -248,6 +248,7 @@ async function runAutoBilling() {
           }
         } catch (err) {
           console.error(`[scheduler]   PDF error for ${customer.name}/${meter.name}:`, err);
+          bill.pdfError = err instanceof Error ? err.message : String(err);
         }
 
         // Save bill to disk immediately (before email attempt, so it's never lost)

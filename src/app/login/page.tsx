@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Zap, Eye, EyeOff, Lock } from "lucide-react";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,14 +13,15 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [statusError, setStatusError] = useState("");
 
   useEffect(() => {
-    fetch("/api/auth/status")
-      .then(r => r.json())
+    apiGet<{ authenticated: boolean; hasPassword: boolean }>("/api/auth/status")
       .then(d => {
         if (d.authenticated) { router.replace("/"); return; }
         setHasPassword(d.hasPassword);
-      });
+      })
+      .catch(err => setStatusError(errorText(err)));
   }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -31,34 +33,36 @@ export default function LoginPage() {
       if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
       if (password !== confirmPassword) { setError("Passwords do not match"); return; }
       setLoading(true);
-      const r = await fetch("/api/auth/setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const d = await r.json();
-      setLoading(false);
-      if (!r.ok) { setError(d.error ?? "Setup failed"); return; }
+      try {
+        await apiSend("/api/auth/setup", "POST", { password });
+      } catch (err) {
+        setError(errorText(err));
+        return;
+      } finally {
+        setLoading(false);
+      }
       router.replace("/");
     } else {
       // Normal login
       setLoading(true);
-      const r = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
-      const d = await r.json();
-      setLoading(false);
-      if (!r.ok) { setError(d.error ?? "Login failed"); return; }
+      try {
+        await apiSend("/api/auth/login", "POST", { password });
+      } catch (err) {
+        setError(errorText(err));
+        return;
+      } finally {
+        setLoading(false);
+      }
       router.replace("/");
     }
   }
 
   if (hasPassword === null) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
+        {statusError
+          ? <p className="text-red-400 text-sm text-center">Could not reach the server: {statusError}</p>
+          : <div className="w-6 h-6 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />}
       </div>
     );
   }

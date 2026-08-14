@@ -1,15 +1,16 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const meter = data.meters.find((m) => m.id === id);
   if (!meter) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(meter);
-}
+});
 
-export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PUT = withErrorHandling(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await req.json();
   const data = readData();
@@ -23,9 +24,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   data.meters[idx] = updated;
   writeData(data);
   return NextResponse.json(data.meters[idx]);
-}
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const hasReadings = data.meterReadings.some((r) => r.meterId === id);
@@ -38,4 +39,4 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   data.meters = data.meters.filter((m) => m.id !== id);
   writeData(data);
   return NextResponse.json({ success: true });
-}
+});

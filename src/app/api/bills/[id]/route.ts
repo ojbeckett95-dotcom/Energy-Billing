@@ -1,25 +1,30 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, saveBillPDFToFile } from "@/lib/db";
 import { generateBillPDF } from "@/lib/pdf-generator";
 import { sendBillEmail } from "@/lib/email";
 import fs from "fs";
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const bill = data.bills.find((b) => b.id === id);
   if (!bill) return NextResponse.json({ error: "Not found" }, { status: 404 });
   return NextResponse.json(bill);
-}
+});
 
-export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const DELETE = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
 
   // Delete PDF file from disk if it exists
   const bill = data.bills.find((b) => b.id === id);
   if (bill?.pdfFilePath && fs.existsSync(bill.pdfFilePath)) {
-    try { fs.unlinkSync(bill.pdfFilePath); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(bill.pdfFilePath);
+    } catch (err) {
+      console.error(`Could not delete PDF ${bill.pdfFilePath}:`, err);
+    }
   }
 
   // Clear billedInBillId from all readings that reference this bill
@@ -32,10 +37,10 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   data.bills = data.bills.filter((b) => b.id !== id);
   writeData(data);
   return NextResponse.json({ success: true });
-}
+});
 
 // PATCH /api/bills/[id] – update status or regenerate PDF
-export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const body = await req.json() as { action?: string; status?: string };
   const data = readData();
@@ -98,6 +103,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
       bill.pdfFilePath = undefined;
     }
+    bill.pdfError = undefined;
     data.bills[idx] = bill;
     writeData(data);
     return NextResponse.json({ success: true });
@@ -111,7 +117,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   return NextResponse.json({ error: "No action specified" }, { status: 400 });
-}
+});
 
 // Keep TS happy with Bill type import
 import type { Bill } from "@/lib/types";

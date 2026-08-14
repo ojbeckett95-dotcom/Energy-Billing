@@ -60,10 +60,12 @@ export async function readMeterTCP(
   const t2 = t2Register ?? T2_REG;
   const count = REGISTER_COUNT[dataType];
 
+  let client: InstanceType<Awaited<typeof import("modbus-serial")>["default"]> | undefined;
+
   try {
     // Dynamic import to avoid issues on the edge runtime
     const ModbusRTU = (await import("modbus-serial")).default;
-    const client = new ModbusRTU();
+    client = new ModbusRTU();
     client.setTimeout(timeoutMs);
 
     await client.connectTCP(ip, { port });
@@ -91,8 +93,6 @@ export async function readMeterTCP(
       tariff4Kwh = Math.round(parseRegisters(t4Data.data, dataType) * 100) / 100;
     }
 
-    await client.close(() => {});
-
     return {
       success: true,
       tariff1Kwh: Math.round(tariff1Kwh * 100) / 100,
@@ -105,5 +105,12 @@ export async function readMeterTCP(
       success: false,
       error: err instanceof Error ? err.message : "Unknown Modbus error",
     };
+  } finally {
+    // Close on every path so a failed read cannot leak the socket
+    try {
+      client?.close(() => {});
+    } catch (err) {
+      console.error(`[modbus] Could not close connection to ${ip}:${port}:`, err);
+    }
   }
 }

@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateId } from "@/lib/db";
 import type { MeterReading } from "@/lib/types";
 
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const { searchParams } = new URL(req.url);
   const customerId = searchParams.get("customerId");
   const meterId = searchParams.get("meterId");
@@ -45,9 +46,9 @@ export async function GET(req: NextRequest) {
     readings = readings.filter((r) => r.customerId === customerId);
   }
   return NextResponse.json(readings.sort((a, b) => b.readingDate.localeCompare(a.readingDate)));
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json() as Omit<MeterReading, "id">;
   const data = readData();
 
@@ -62,10 +63,10 @@ export async function POST(req: NextRequest) {
   data.meterReadings.push(reading);
   writeData(data);
   return NextResponse.json(reading, { status: 201 });
-}
+});
 
 // DELETE /api/readings — bulk delete by IDs
-export async function DELETE(req: NextRequest) {
+export const DELETE = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json() as { ids: string[] };
   const { ids } = body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -85,11 +86,11 @@ export async function DELETE(req: NextRequest) {
   data.meterReadings = data.meterReadings.filter(r => !idSet.has(r.id));
   writeData(data);
   return NextResponse.json({ success: true, deleted: ids.length });
-}
+});
 
 // PATCH /api/readings — bulk update by IDs
 // Supports: { ids, archived: boolean } or { ids, billedStatus: "billed" | "unbilled" }
-export async function PATCH(req: NextRequest) {
+export const PATCH = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json() as { ids: string[]; archived?: boolean; billedStatus?: "billed" | "unbilled" };
   const { ids, archived, billedStatus } = body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -117,4 +118,4 @@ export async function PATCH(req: NextRequest) {
   });
   writeData(data);
   return NextResponse.json({ success: true, count: ids.length });
-}
+});

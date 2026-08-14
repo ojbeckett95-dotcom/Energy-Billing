@@ -1,7 +1,8 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextResponse } from "next/server";
 import { readData, archiveOldReadings } from "@/lib/db";
 
-export async function POST() {
+export const POST = withErrorHandling(async () => {
   const data = readData();
   const months = data.schedulerSettings.readingsArchiveMonths ?? 0;
   if (months <= 0) {
@@ -9,4 +10,4 @@ export async function POST() {
   }
   const result = archiveOldReadings(months);
   return NextResponse.json(result);
-}
+});

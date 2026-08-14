@@ -6,6 +6,8 @@ import { Users, FileText, Zap, Activity, TrendingUp, Clock, CheckCircle, Send } 
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { format } from "date-fns";
+import { toast } from "sonner";
+import { apiGet, errorText } from "@/lib/api-client";
 
 interface DashboardData {
   totalCustomers: number;
@@ -36,18 +38,24 @@ const statusColors: Record<string, string> = {
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/dashboard")
-      .then((r) => r.json())
-      .then(setData);
+    apiGet<DashboardData>("/api/dashboard")
+      .then(setData)
+      .catch((err) => {
+        setLoadError(errorText(err));
+        toast.error(`Could not load dashboard: ${errorText(err)}`);
+      });
   }, []);
 
   if (!data) {
     return (
       <AppShell>
         <div className="flex items-center justify-center h-screen">
-          <div className="animate-pulse text-slate-400">Loading dashboard...</div>
+          {loadError
+            ? <div className="text-red-600">Could not load dashboard: {loadError}</div>
+            : <div className="animate-pulse text-slate-400">Loading dashboard...</div>}
         </div>
       </AppShell>
     );

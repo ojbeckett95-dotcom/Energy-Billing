@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData } from "@/lib/db";
 import fs from "fs";
 
-export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const GET = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
   const bill = data.bills.find((b) => b.id === id);
@@ -23,4 +24,4 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
       "Content-Disposition": `attachment; filename="invoice-${id}.pdf"`,
     },
   });
-}
+});

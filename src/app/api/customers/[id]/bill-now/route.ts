@@ -1,9 +1,10 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateBillId, getActiveTariffId, saveBillPDFToFile } from "@/lib/db";
 import { generateBillPDF } from "@/lib/pdf-generator";
 import type { Bill } from "@/lib/types";
 
-export async function POST(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export const POST = withErrorHandling(async (_: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
   const data = readData();
 
@@ -15,7 +16,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     return NextResponse.json({ error: "No meters configured for this customer" }, { status: 400 });
   }
 
-  const results: { meter: string; billId?: string; error?: string }[] = [];
+  const results: { meter: string; billId?: string; error?: string; pdfError?: string }[] = [];
 
   for (const meter of customerMeters) {
     const meterReadings = data.meterReadings
@@ -110,6 +111,7 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       }
     } catch (err) {
       console.error(`bill-now PDF error for ${meter.name}:`, err);
+      bill.pdfError = err instanceof Error ? err.message : String(err);
     }
 
     // Save bill + mark readings as billed + update lastAutoBilledAt
@@ -129,11 +131,12 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
     }
     writeData(fresh);
 
-    results.push({ meter: meter.name, billId: bill.id });
+    results.push({ meter: meter.name, billId: bill.id, ...(bill.pdfError && { pdfError: bill.pdfError }) });
   }
 
   const generated = results.filter((r) => r.billId).length;
   const failed = results.filter((r) => r.error).length;
+  const pdfFailed = results.filter((r) => r.pdfError).length;
 
-  return NextResponse.json({ results, generated, failed });
-}
+  return NextResponse.json({ results, generated, failed, pdfFailed });
+});

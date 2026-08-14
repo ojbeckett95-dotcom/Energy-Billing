@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { Customer, TariffRate, CustomerTariffSchedule, Meter } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const EMPTY_CUSTOMER: Omit<Customer, "id" | "createdAt" | "lastAutoBilledAt"> = {
   name: "",
@@ -37,18 +38,22 @@ export default function CustomersPage() {
   const [metersCustomer, setMetersCustomer] = useState<Customer | null>(null);
 
   async function load() {
-    const [c, t, m] = await Promise.all([
-      fetch("/api/customers").then(r => r.json()),
-      fetch("/api/tariffs").then(r => r.json()),
-      fetch("/api/meters").then(r => r.json()),
-    ]);
-    setCustomers(c);
-    setTariffs(t);
-    const counts: Record<string, number> = {};
-    for (const meter of m as Meter[]) {
-      if (meter.customerId) counts[meter.customerId] = (counts[meter.customerId] ?? 0) + 1;
+    try {
+      const [c, t, m] = await Promise.all([
+        apiGet<Customer[]>("/api/customers"),
+        apiGet<TariffRate[]>("/api/tariffs"),
+        apiGet<Meter[]>("/api/meters"),
+      ]);
+      setCustomers(c);
+      setTariffs(t);
+      const counts: Record<string, number> = {};
+      for (const meter of m) {
+        if (meter.customerId) counts[meter.customerId] = (counts[meter.customerId] ?? 0) + 1;
+      }
+      setMeterCounts(counts);
+    } catch (err) {
+      toast.error(`Could not load customers: ${errorText(err)}`);
     }
-    setMeterCounts(counts);
   }
 
   useEffect(() => { load(); }, []);
@@ -82,23 +87,18 @@ export default function CustomersPage() {
     setLoading(true);
     try {
       if (editId) {
-        await fetch(`/api/customers/${editId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+        await apiSend(`/api/customers/${editId}`, "PUT", form);
         toast.success("Customer updated");
       } else {
-        const res = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
-        const created = await res.json();
+        const created = await apiSend<Customer>("/api/customers", "POST", form);
         if (initialReading.enabled && initialReading.t1Kwh !== "" && initialReading.t2Kwh !== "") {
-          await fetch("/api/readings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              customerId: created.id,
-              readingDate: new Date(initialReading.date).toISOString(),
-              tariff1Kwh: parseFloat(initialReading.t1Kwh),
-              tariff2Kwh: parseFloat(initialReading.t2Kwh),
-              readMethod: "manual",
-              notes: "Initial reading",
-            }),
+          await apiSend("/api/readings", "POST", {
+            customerId: created.id,
+            readingDate: new Date(initialReading.date).toISOString(),
+            tariff1Kwh: parseFloat(initialReading.t1Kwh),
+            tariff2Kwh: parseFloat(initialReading.t2Kwh),
+            readMethod: "manual",
+            notes: "Initial reading",
           });
           toast.success("Customer created with initial reading");
         } else {
@@ -107,6 +107,8 @@ export default function CustomersPage() {
       }
       setShowForm(false);
       load();
+    } catch (err) {
+      toast.error(`Could not save customer: ${errorText(err)}`);
     } finally {
       setLoading(false);
     }
@@ -114,8 +116,12 @@ export default function CustomersPage() {
 
   async function remove(id: string) {
     if (!confirm("Delete this customer?")) return;
-    await fetch(`/api/customers/${id}`, { method: "DELETE" });
-    toast.success("Customer deleted");
+    try {
+      await apiSend(`/api/customers/${id}`, "DELETE");
+      toast.success("Customer deleted");
+    } catch (err) {
+      toast.error(`Could not delete customer: ${errorText(err)}`);
+    }
     load();
   }
 
@@ -123,32 +129,38 @@ export default function CustomersPage() {
     if (!editId) return;
     setBillingNow(true);
     try {
-      const r = await fetch(`/api/customers/${editId}/bill-now`, { method: "POST" });
-      const result = await r.json();
-      if (!r.ok) {
-        toast.error(result.error ?? "Failed to run billing");
-        return;
-      }
+      const result = await apiSend<{
+        results: { meter: string; error?: string; pdfError?: string }[];
+        generated: number;
+        failed: number;
+        pdfFailed: number;
+      }>(`/api/customers/${editId}/bill-now`, "POST");
       if (result.generated === 0) {
-        const reasons = result.results.map((x: { meter: string; error?: string }) => x.error).filter(Boolean);
+        const reasons = result.results.map((x) => x.error).filter(Boolean);
         toast.warning(`No bills generated: ${reasons.join("; ")}`);
       } else {
         toast.success(`${result.generated} bill${result.generated !== 1 ? "s" : ""} generated`);
         if (result.failed > 0) toast.warning(`${result.failed} meter(s) skipped — check readings/tariff`);
+        if (result.pdfFailed > 0) {
+          const pdfErrors = result.results.filter((x) => x.pdfError).map((x) => `${x.meter}: ${x.pdfError}`);
+          toast.error(`PDF generation failed for ${result.pdfFailed} bill(s) — ${pdfErrors.join("; ")}`);
+        }
       }
       load();
+    } catch (err) {
+      toast.error(`Failed to run billing: ${errorText(err)}`);
     } finally {
       setBillingNow(false);
     }
   }
 
   async function resetBillingCycle(id: string) {
-    await fetch(`/api/customers/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lastAutoBilledAt: null }),
-    });
-    toast.success("Billing cycle reset — scheduler will bill on next run");
+    try {
+      await apiSend(`/api/customers/${id}`, "PUT", { lastAutoBilledAt: null });
+      toast.success("Billing cycle reset — scheduler will bill on next run");
+    } catch (err) {
+      toast.error(`Could not reset billing cycle: ${errorText(err)}`);
+    }
     load();
   }
 
@@ -476,10 +488,16 @@ function MetersModal({ customer, onClose }: { customer: Customer; onClose: () =>
   const [busy, setBusy] = useState<string | null>(null);
 
   async function loadMeters() {
-    const [a, u] = await Promise.all([
-      fetch(`/api/meters?customerId=${customer.id}`).then(r => r.json()),
-      fetch(`/api/meters?unassigned=true`).then(r => r.json()),
-    ]);
+    let a: Meter[], u: Meter[];
+    try {
+      [a, u] = await Promise.all([
+        apiGet<Meter[]>(`/api/meters?customerId=${customer.id}`),
+        apiGet<Meter[]>(`/api/meters?unassigned=true`),
+      ]);
+    } catch (err) {
+      toast.error(`Could not load meters: ${errorText(err)}`);
+      return;
+    }
     setAssigned(a);
     setUnassigned(u);
   }
@@ -489,26 +507,23 @@ function MetersModal({ customer, onClose }: { customer: Customer; onClose: () =>
   async function unassignMeter(id: string) {
     setBusy(id);
     try {
-      const r = await fetch(`/api/meters/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: null }),
-      });
-      if (r.ok) { toast.success("Meter unassigned"); loadMeters(); }
-      else { const e = await r.json(); toast.error(e.error ?? "Failed"); }
+      await apiSend(`/api/meters/${id}`, "PUT", { customerId: null });
+      toast.success("Meter unassigned");
+      loadMeters();
+    } catch (err) {
+      toast.error(`Could not unassign meter: ${errorText(err)}`);
     } finally { setBusy(null); }
   }
 
   async function assignMeter(id: string) {
     setBusy(id);
     try {
-      const r = await fetch(`/api/meters/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: customer.id }),
-      });
-      if (r.ok) { toast.success("Meter assigned"); setAssignSearch(""); loadMeters(); }
-      else { const e = await r.json(); toast.error(e.error ?? "Failed"); }
+      await apiSend(`/api/meters/${id}`, "PUT", { customerId: customer.id });
+      toast.success("Meter assigned");
+      setAssignSearch("");
+      loadMeters();
+    } catch (err) {
+      toast.error(`Could not assign meter: ${errorText(err)}`);
     } finally { setBusy(null); }
   }
 
@@ -627,8 +642,11 @@ function TariffScheduleModal({ customer, tariffs, onClose }: {
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    const r = await fetch(`/api/customer-tariff-schedules?customerId=${customer.id}`);
-    setSchedules(await r.json());
+    try {
+      setSchedules(await apiGet<CustomerTariffSchedule[]>(`/api/customer-tariff-schedules?customerId=${customer.id}`));
+    } catch (err) {
+      toast.error(`Could not load tariff schedule: ${errorText(err)}`);
+    }
   }
 
   useEffect(() => { load(); }, []);
@@ -637,24 +655,31 @@ function TariffScheduleModal({ customer, tariffs, onClose }: {
     if (!addTariff || !addDate) return;
     setSaving(true);
     try {
-      await fetch("/api/customer-tariff-schedules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerId: customer.id, tariffRateId: addTariff, effectiveFrom: addDate, notes: addNotes || undefined }),
+      await apiSend("/api/customer-tariff-schedules", "POST", {
+        customerId: customer.id,
+        tariffRateId: addTariff,
+        effectiveFrom: addDate,
+        notes: addNotes || undefined,
       });
       toast.success("Tariff change scheduled");
       setAddDate(new Date().toISOString().substring(0, 10));
       setAddTariff("");
       setAddNotes("");
       load();
+    } catch (err) {
+      toast.error(`Could not schedule tariff change: ${errorText(err)}`);
     } finally {
       setSaving(false);
     }
   }
 
   async function remove(id: string) {
-    await fetch(`/api/customer-tariff-schedules/${id}`, { method: "DELETE" });
-    toast.success("Schedule removed");
+    try {
+      await apiSend(`/api/customer-tariff-schedules/${id}`, "DELETE");
+      toast.success("Schedule removed");
+    } catch (err) {
+      toast.error(`Could not remove schedule: ${errorText(err)}`);
+    }
     load();
   }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, shell } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, shell, dialog } from "electron";
 import { utilityProcess } from "electron";
 import path from "path";
 import http from "http";
@@ -18,7 +18,9 @@ function readConfiguredPort(): number {
       const p = parsed?.schedulerSettings?.serverPort;
       if (typeof p === "number" && p > 0 && p < 65536) return p;
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.error(`Could not read configured port, falling back to ${DEFAULT_PORT}:`, err);
+  }
   return DEFAULT_PORT;
 }
 
@@ -35,7 +37,9 @@ function readSessionSecret(): string {
       const s = parsed?.authSettings?.sessionSecret;
       if (typeof s === "string" && s.length > 0) return s;
     }
-  } catch { /* ignore */ }
+  } catch (err) {
+    console.error("Could not read the stored session secret; a new one will be generated:", err);
+  }
   // Generate a new secret and persist it so it survives restarts
   const secret = crypto.randomBytes(32).toString("hex");
   try {
@@ -43,13 +47,17 @@ function readSessionSecret(): string {
     if (!fs.existsSync(dataDir2)) fs.mkdirSync(dataDir2, { recursive: true });
     let existing: Record<string, unknown> = {};
     if (fs.existsSync(dataFile)) {
-      try { existing = JSON.parse(fs.readFileSync(dataFile, "utf-8")); } catch { /* ignore */ }
+      // Rewriting a file we could not parse would wipe the user's data, so keep
+      // the unreadable file and run with a secret that lives only in memory.
+      existing = JSON.parse(fs.readFileSync(dataFile, "utf-8"));
     }
     const authSettings = (existing.authSettings as Record<string, unknown>) ?? {};
     authSettings.sessionSecret = secret;
     existing.authSettings = authSettings;
     fs.writeFileSync(dataFile, JSON.stringify(existing, null, 2), "utf-8");
-  } catch { /* ignore — secret will regenerate on next start */ }
+  } catch (err) {
+    console.error("Could not persist the session secret; sessions will not survive a restart:", err);
+  }
   return secret;
 }
 
@@ -219,7 +227,13 @@ const RESTART_FLAG = path.join(dataDir, "restart.flag");
 function startRestartWatcher() {
   setInterval(() => {
     if (fs.existsSync(RESTART_FLAG)) {
-      try { fs.unlinkSync(RESTART_FLAG); } catch { /* ignore */ }
+      try {
+        fs.unlinkSync(RESTART_FLAG);
+      } catch (err) {
+        // Relaunching with the flag in place would restart the app forever.
+        console.error(`Could not clear ${RESTART_FLAG}; skipping restart:`, err);
+        return;
+      }
       app.relaunch();
       app.quit();
     }
@@ -240,6 +254,13 @@ app.whenReady().then(async () => {
     await waitForServer(`http://127.0.0.1:${PORT}`);
   } catch (err) {
     console.error("Next.js server failed to start:", err);
+    dialog.showErrorBox(
+      "Energy Billing could not start",
+      `The application server on port ${PORT} did not start:\n\n${err instanceof Error ? err.message : String(err)}`,
+    );
+    quitting = true;
+    app.quit();
+    return;
   }
 
   const startHidden = isPackaged && app.getLoginItemSettings().wasOpenedAtLogin;

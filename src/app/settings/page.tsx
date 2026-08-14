@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import type { SchedulerSettings } from "@/lib/types";
+import { apiGet, apiSend, errorText } from "@/lib/api-client";
 
 const DEFAULT_SCHEDULER: SchedulerSettings = {
   autoReadingsEnabled: false,
@@ -41,9 +42,9 @@ export default function SystemSettingsPage() {
   const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
-    fetch("/api/scheduler-settings")
-      .then(r => r.json())
-      .then(s => setScheduler(prev => ({ ...prev, ...s })));
+    apiGet<Partial<SchedulerSettings>>("/api/scheduler-settings")
+      .then(s => setScheduler(prev => ({ ...prev, ...s })))
+      .catch(err => toast.error(`Could not load scheduler settings: ${errorText(err)}`));
   }, []);
 
   async function testMeter() {
@@ -51,15 +52,17 @@ export default function SystemSettingsPage() {
     setTesting(true);
     setResult(null);
     try {
-      const r = await fetch("/api/modbus/read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ip, port: parseInt(port) || 502, unitId: parseInt(unitId) || 1 }),
-      });
-      const data = await r.json();
+      const data = await apiSend<{ success: boolean; tariff1Kwh?: number; tariff2Kwh?: number; error?: string }>(
+        "/api/modbus/read",
+        "POST",
+        { ip, port: parseInt(port) || 502, unitId: parseInt(unitId) || 1 },
+      );
       setResult(data);
       if (data.success) toast.success("Meter read successfully");
       else toast.error(`Failed: ${data.error}`);
+    } catch (err) {
+      setResult({ success: false, error: errorText(err) });
+      toast.error(`Failed: ${errorText(err)}`);
     } finally {
       setTesting(false);
     }
@@ -68,12 +71,10 @@ export default function SystemSettingsPage() {
   async function saveScheduler() {
     setSavingScheduler(true);
     try {
-      await fetch("/api/scheduler-settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(scheduler),
-      });
+      await apiSend("/api/scheduler-settings", "PUT", scheduler);
       toast.success("Scheduler settings saved");
+    } catch (err) {
+      toast.error(`Could not save scheduler settings: ${errorText(err)}`);
     } finally {
       setSavingScheduler(false);
     }
@@ -83,15 +84,14 @@ export default function SystemSettingsPage() {
     setBrowsingFolder(true);
     try {
       const current = encodeURIComponent(scheduler.pdfStoragePath ?? "");
-      const r = await fetch(`/api/browse-folder?current=${current}`);
-      const data = await r.json();
+      const data = await apiGet<{ path?: string; error?: string }>(`/api/browse-folder?current=${current}`);
       if (data.path) {
         set("pdfStoragePath", data.path);
       } else if (data.error) {
         toast.error(`Folder picker error: ${data.error}`);
       }
-    } catch {
-      toast.error("Could not open folder picker");
+    } catch (err) {
+      toast.error(`Could not open folder picker: ${errorText(err)}`);
     } finally {
       setBrowsingFolder(false);
     }
@@ -100,10 +100,10 @@ export default function SystemSettingsPage() {
   async function restartApp() {
     setRestarting(true);
     try {
-      await fetch("/api/restart", { method: "POST" });
+      await apiSend("/api/restart", "POST");
       toast.success("Restart signal sent — the app will restart in a few seconds");
-    } catch {
-      toast.error("Failed to send restart signal");
+    } catch (err) {
+      toast.error(`Failed to send restart signal: ${errorText(err)}`);
       setRestarting(false);
     }
     // Keep button disabled — page will reload when app comes back up
@@ -113,14 +113,12 @@ export default function SystemSettingsPage() {
     setArchiving(true);
     setArchiveResult(null);
     try {
-      const r = await fetch("/api/readings/archive", { method: "POST" });
-      const data = await r.json();
-      if (!r.ok) { toast.error(data.error ?? "Archive failed"); return; }
+      const data = await apiSend<{ archived: number; archiveFile: string }>("/api/readings/archive", "POST");
       setArchiveResult(data);
       if (data.archived === 0) toast.success("No readings old enough to archive");
       else toast.success(`Archived ${data.archived} reading${data.archived !== 1 ? "s" : ""}`);
-    } catch {
-      toast.error("Archive request failed");
+    } catch (err) {
+      toast.error(`Archive failed: ${errorText(err)}`);
     } finally {
       setArchiving(false);
     }
@@ -131,22 +129,13 @@ export default function SystemSettingsPage() {
     if (newPassword !== confirmPassword) { toast.error("New passwords do not match"); return; }
     setChangingPassword(true);
     try {
-      const r = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const data = await r.json();
-      if (r.ok) {
-        toast.success("Password changed successfully");
-        setCurrentPassword("");
-        setNewPassword("");
-        setConfirmPassword("");
-      } else {
-        toast.error(data.error ?? "Failed to change password");
-      }
-    } catch {
-      toast.error("Request failed");
+      await apiSend("/api/auth/change-password", "POST", { currentPassword, newPassword });
+      toast.success("Password changed successfully");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      toast.error(`Failed to change password: ${errorText(err)}`);
     } finally {
       setChangingPassword(false);
     }

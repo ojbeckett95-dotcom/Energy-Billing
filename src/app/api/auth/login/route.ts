@@ -1,8 +1,9 @@
+import { withErrorHandling } from "@/lib/api-error";
 import { NextRequest, NextResponse } from "next/server";
 import { readData } from "@/lib/db";
 import { verifyPassword, createSessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
 
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const { password } = await req.json() as { password: string };
   if (!password) return NextResponse.json({ error: "Password required" }, { status: 400 });
 
@@ -21,4 +22,4 @@ export async function POST(req: NextRequest) {
     maxAge: 8 * 3600,
   });
   return res;
-}
+});

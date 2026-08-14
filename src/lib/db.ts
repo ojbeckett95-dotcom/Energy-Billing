@@ -90,31 +90,54 @@ function ensureDataDir() {
   }
 }
 
+/** Moves an unreadable data file aside so it is never overwritten with defaults.
+ *  Returns the backup path, or undefined if the file could not be moved. */
+function quarantineFile(file: string): string | undefined {
+  const backup = `${file}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(file, backup);
+    return backup;
+  } catch (err) {
+    console.error(`[db] Could not move unreadable file ${file} aside:`, err);
+    return undefined;
+  }
+}
+
 export function readData(): AppData {
   ensureDataDir();
   if (!fs.existsSync(DATA_FILE)) {
     writeData(DEFAULT_DATA);
     return DEFAULT_DATA;
   }
+  let raw: string;
   try {
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<AppData>;
-    // Merge with defaults to handle any missing keys
-    return {
-      customers: parsed.customers ?? [],
-      meters: parsed.meters ?? [],
-      tariffRates: parsed.tariffRates ?? [],
-      meterReadings: parsed.meterReadings ?? [],
-      bills: parsed.bills ?? [],
-      customerTariffSchedules: parsed.customerTariffSchedules ?? [],
-      branding: { ...DEFAULT_BRANDING, ...(parsed.branding ?? {}) },
-      emailSettings: { ...DEFAULT_EMAIL_SETTINGS, ...(parsed.emailSettings ?? {}) },
-      schedulerSettings: { ...DEFAULT_SCHEDULER_SETTINGS, ...(parsed.schedulerSettings ?? {}) },
-      authSettings: { ...makeDefaultAuthSettings(), ...(parsed.authSettings ?? {}) },
-    };
-  } catch {
-    return DEFAULT_DATA;
+    raw = fs.readFileSync(DATA_FILE, "utf-8");
+  } catch (err) {
+    throw new Error(`Could not read data file ${DATA_FILE}: ${err instanceof Error ? err.message : String(err)}`);
   }
+  let parsed: Partial<AppData>;
+  try {
+    parsed = JSON.parse(raw) as Partial<AppData>;
+  } catch (err) {
+    const backup = quarantineFile(DATA_FILE);
+    throw new Error(
+      `Data file ${DATA_FILE} is not valid JSON (${err instanceof Error ? err.message : String(err)}).` +
+      (backup ? ` It has been moved to ${backup}; restart to start from a fresh file.` : "")
+    );
+  }
+  // Merge with defaults to handle any missing keys
+  return {
+    customers: parsed.customers ?? [],
+    meters: parsed.meters ?? [],
+    tariffRates: parsed.tariffRates ?? [],
+    meterReadings: parsed.meterReadings ?? [],
+    bills: parsed.bills ?? [],
+    customerTariffSchedules: parsed.customerTariffSchedules ?? [],
+    branding: { ...DEFAULT_BRANDING, ...(parsed.branding ?? {}) },
+    emailSettings: { ...DEFAULT_EMAIL_SETTINGS, ...(parsed.emailSettings ?? {}) },
+    schedulerSettings: { ...DEFAULT_SCHEDULER_SETTINGS, ...(parsed.schedulerSettings ?? {}) },
+    authSettings: { ...makeDefaultAuthSettings(), ...(parsed.authSettings ?? {}) },
+  };
 }
 
 export function writeData(data: AppData): void {
@@ -170,7 +193,15 @@ export function archiveOldReadings(months: number): { archived: number; archiveF
   // Load existing archive and deduplicate by id
   let existing: MeterReading[] = [];
   if (fs.existsSync(ARCHIVE_FILE)) {
-    try { existing = JSON.parse(fs.readFileSync(ARCHIVE_FILE, "utf-8")); } catch { /* ignore */ }
+    try {
+      existing = JSON.parse(fs.readFileSync(ARCHIVE_FILE, "utf-8"));
+    } catch (err) {
+      // Overwriting an unreadable archive would drop previously archived readings.
+      throw new Error(
+        `Readings archive ${ARCHIVE_FILE} could not be read (${err instanceof Error ? err.message : String(err)}). ` +
+        `Move or repair the file before archiving again.`
+      );
+    }
   }
   const existingIds = new Set(existing.map(r => r.id));
   const newEntries  = toArchive.filter(r => !existingIds.has(r.id));
