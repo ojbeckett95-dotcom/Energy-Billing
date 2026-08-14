@@ -6,6 +6,11 @@ directories:
   output: dist
   buildResources: build-resources
 
+# The only native dependency (@serialport/bindings-cpp, pulled in by
+# modbus-serial) ships N-API prebuilds for every platform, so rebuilding it
+# needs no Visual Studio toolchain and would break cross-platform builds.
+npmRebuild: false
+
 # Files to include in the package (asar)
 files:
   - dist-electron/**

@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [hasPassword, setHasPassword] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [recoveryPassword, setRecoveryPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -28,13 +29,15 @@ export default function LoginPage() {
 
     if (!hasPassword) {
       // First-run setup
-      if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
+      if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
       if (password !== confirmPassword) { setError("Passwords do not match"); return; }
+      if (recoveryPassword.length < 8) { setError("Recovery password must be at least 8 characters"); return; }
+      if (recoveryPassword === password) { setError("Recovery password must differ from your password"); return; }
       setLoading(true);
       const r = await fetch("/api/auth/setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, recoveryPassword }),
       });
       const d = await r.json();
       setLoading(false);
@@ -81,7 +84,9 @@ export default function LoginPage() {
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           {!hasPassword && (
             <div className="mb-5 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
-              This is your first time logging in. Set a password to protect your billing data.
+              This is your first time logging in. Set a password to protect your billing data, plus a
+              recovery password to fall back on if you ever forget it. Keep the recovery password somewhere
+              safe — it is only stored as a hash, so it cannot be looked up later.
             </div>
           )}
 
@@ -97,7 +102,7 @@ export default function LoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   autoFocus
                   required
-                  placeholder={hasPassword ? "Enter your password" : "At least 6 characters"}
+                  placeholder={hasPassword ? "Enter your password" : "At least 8 characters"}
                   className="w-full px-3 py-2.5 pr-10 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
@@ -124,6 +129,20 @@ export default function LoginPage() {
               </div>
             )}
 
+            {!hasPassword && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1.5">Recovery Password</label>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={recoveryPassword}
+                  onChange={e => setRecoveryPassword(e.target.value)}
+                  required
+                  placeholder="Used only if you forget your password"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            )}
+
             {error && (
               <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                 {error}
@@ -144,7 +163,9 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-slate-500 text-xs mt-5">
-          Forgot your password? Use the recovery password documented in your setup notes.
+          {hasPassword
+            ? "Forgot your password? Sign in with the recovery password you set during setup, then change your password in Settings."
+            : "Both passwords are stored as hashes on this machine only."}
         </p>
       </div>
     </div>

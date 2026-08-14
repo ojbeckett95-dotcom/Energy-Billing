@@ -5,7 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Users, FileText, Zap, Activity, TrendingUp, Clock, CheckCircle, Send } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
-import { format } from "date-fns";
+import { formatDate } from "@/lib/format-date";
 
 interface DashboardData {
   totalCustomers: number;
@@ -177,9 +177,9 @@ export default function DashboardPage() {
                   <tr key={b.id} className="hover:bg-slate-50 transition-colors">
                     <td className="py-3 font-medium text-slate-900">{b.customerName}</td>
                     <td className="py-3 text-slate-600">
-                      {format(new Date(b.billingPeriodStart), "dd/MM/yy")} – {format(new Date(b.billingPeriodEnd), "dd/MM/yy")}
+                      {formatDate(b.billingPeriodStart)} – {formatDate(b.billingPeriodEnd)}
                     </td>
-                    <td className="py-3 text-slate-500">{format(new Date(b.generatedAt), "dd/MM/yyyy")}</td>
+                    <td className="py-3 text-slate-500">{formatDate(b.generatedAt)}</td>
                     <td className="py-3">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${statusColors[b.status]}`}>
                         {b.status}

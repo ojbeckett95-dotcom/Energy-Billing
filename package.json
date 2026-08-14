@@ -1,6 +1,6 @@
 {
   "name": "energy-billing",
-  "version": "1.1.0",
+  "version": "1.5.0",
   "description": "Energy billing management for Modbus TCP meters",
   "author": "Energy Billing",
   "main": "dist-electron/main.js",

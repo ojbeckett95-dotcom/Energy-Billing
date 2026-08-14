@@ -64,6 +64,7 @@ const DEFAULT_SCHEDULER_SETTINGS: SchedulerSettings = {
   autoBillingTimeOfDay: "09:00",
   pdfStoragePath: "",
   serverPort: 3001,
+  allowNetworkAccess: false,
   readingsArchiveMonths: 0,
 };
 
@@ -71,18 +72,21 @@ function makeDefaultAuthSettings(): AuthSettings {
   return { sessionSecret: crypto.randomBytes(32).toString("hex") };
 }
 
-const DEFAULT_DATA: AppData = {
-  customers: [],
-  meters: [],
-  tariffRates: [],
-  meterReadings: [],
-  bills: [],
-  customerTariffSchedules: [],
-  branding: DEFAULT_BRANDING,
-  emailSettings: DEFAULT_EMAIL_SETTINGS,
-  schedulerSettings: DEFAULT_SCHEDULER_SETTINGS,
-  authSettings: makeDefaultAuthSettings(),
-};
+/** Every call returns a fresh object graph, so callers can never mutate shared defaults. */
+function makeDefaultData(): AppData {
+  return {
+    customers: [],
+    meters: [],
+    tariffRates: [],
+    meterReadings: [],
+    bills: [],
+    customerTariffSchedules: [],
+    branding: { ...DEFAULT_BRANDING },
+    emailSettings: { ...DEFAULT_EMAIL_SETTINGS },
+    schedulerSettings: { ...DEFAULT_SCHEDULER_SETTINGS },
+    authSettings: makeDefaultAuthSettings(),
+  };
+}
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -90,50 +94,146 @@ function ensureDataDir() {
   }
 }
 
-export function readData(): AppData {
-  ensureDataDir();
-  if (!fs.existsSync(DATA_FILE)) {
-    writeData(DEFAULT_DATA);
-    return DEFAULT_DATA;
-  }
-  try {
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<AppData>;
-    // Merge with defaults to handle any missing keys
-    return {
-      customers: parsed.customers ?? [],
-      meters: parsed.meters ?? [],
-      tariffRates: parsed.tariffRates ?? [],
-      meterReadings: parsed.meterReadings ?? [],
-      bills: parsed.bills ?? [],
-      customerTariffSchedules: parsed.customerTariffSchedules ?? [],
-      branding: { ...DEFAULT_BRANDING, ...(parsed.branding ?? {}) },
-      emailSettings: { ...DEFAULT_EMAIL_SETTINGS, ...(parsed.emailSettings ?? {}) },
-      schedulerSettings: { ...DEFAULT_SCHEDULER_SETTINGS, ...(parsed.schedulerSettings ?? {}) },
-      authSettings: { ...makeDefaultAuthSettings(), ...(parsed.authSettings ?? {}) },
-    };
-  } catch {
-    return DEFAULT_DATA;
+export class DataCorruptError extends Error {
+  constructor(readonly quarantineFile: string, cause: unknown) {
+    super(
+      `${DATA_FILE} could not be parsed and was moved to ${quarantineFile}. ` +
+      `Restore a backup or repair that file, then restart.`,
+      { cause }
+    );
+    this.name = "DataCorruptError";
   }
 }
 
+/** Moves an unreadable data file aside so a later write cannot silently destroy it. */
+function quarantine(err: unknown): never {
+  const target = `${DATA_FILE}.corrupt-${Date.now()}`;
+  try { fs.renameSync(DATA_FILE, target); } catch { /* keep the original error */ }
+  throw new DataCorruptError(target, err);
+}
+
+export function readData(): AppData {
+  ensureDataDir();
+  if (!fs.existsSync(DATA_FILE)) {
+    const fresh = makeDefaultData();
+    writeData(fresh);
+    return fresh;
+  }
+
+  let parsed: Partial<AppData>;
+  try {
+    parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf-8")) as Partial<AppData>;
+  } catch (err) {
+    quarantine(err);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    quarantine(new Error("data file does not contain a JSON object"));
+  }
+
+  const defaults = makeDefaultData();
+  // Merge with defaults to handle any missing keys
+  return {
+    customers: parsed.customers ?? [],
+    meters: parsed.meters ?? [],
+    tariffRates: parsed.tariffRates ?? [],
+    meterReadings: parsed.meterReadings ?? [],
+    bills: parsed.bills ?? [],
+    customerTariffSchedules: parsed.customerTariffSchedules ?? [],
+    branding: { ...defaults.branding, ...(parsed.branding ?? {}) },
+    emailSettings: { ...defaults.emailSettings, ...(parsed.emailSettings ?? {}) },
+    schedulerSettings: { ...defaults.schedulerSettings, ...(parsed.schedulerSettings ?? {}) },
+    authSettings: { ...defaults.authSettings, ...(parsed.authSettings ?? {}) },
+  };
+}
+
+/** Writes via a temp file + rename so a crash mid-write cannot truncate the data file. */
 export function writeData(data: AppData): void {
   ensureDataDir();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), "utf-8");
+  const tmp = path.join(DATA_DIR, `.app-data.${process.pid}.${crypto.randomBytes(4).toString("hex")}.tmp`);
+  const fd = fs.openSync(tmp, "w");
+  try {
+    fs.writeFileSync(fd, JSON.stringify(data, null, 2), "utf-8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  try {
+    fs.renameSync(tmp, DATA_FILE);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    throw err;
+  }
+}
+
+/** Read–modify–write under an exclusive lock, so concurrent writers (app + scheduler)
+ *  cannot overwrite each other's changes with a stale snapshot. */
+export function updateData<T>(mutate: (data: AppData) => T): T {
+  ensureDataDir();
+  const release = acquireLock();
+  try {
+    const data = readData();
+    const result = mutate(data);
+    writeData(data);
+    return result;
+  } finally {
+    release();
+  }
+}
+
+const LOCK_FILE = path.join(DATA_DIR, "app-data.lock");
+const LOCK_STALE_MS = 30_000;
+const LOCK_TIMEOUT_MS = 10_000;
+
+function acquireLock(): () => void {
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      const fd = fs.openSync(LOCK_FILE, "wx");
+      fs.writeSync(fd, String(process.pid));
+      fs.closeSync(fd);
+      return () => { try { fs.unlinkSync(LOCK_FILE); } catch { /* already gone */ } };
+    } catch {
+      // Reclaim a lock left behind by a process that died mid-write.
+      try {
+        if (Date.now() - fs.statSync(LOCK_FILE).mtimeMs > LOCK_STALE_MS) {
+          fs.unlinkSync(LOCK_FILE);
+          continue;
+        }
+      } catch { /* lock vanished, retry */ }
+
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${LOCK_FILE}`);
+      // Busy-wait briefly: all callers here are synchronous.
+      const until = Date.now() + 25;
+      while (Date.now() < until) { /* spin */ }
+    }
+  }
 }
 
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-/** Generates a human-readable bill ID: {accountNumber}-{last5ofSerial}-{DDMMYYYY} */
-export function generateBillId(accountNumber: string, serialNumber: string | undefined, date: Date): string {
+/** Generates a human-readable bill ID: {accountNumber}-{last5ofSerial}-{DDMMYYYY},
+ *  suffixed with -2, -3, … when that ID is already taken. */
+export function generateBillId(
+  accountNumber: string,
+  serialNumber: string | undefined,
+  date: Date,
+  takenIds: Iterable<string> = []
+): string {
   const acc = accountNumber.replace(/[^a-zA-Z0-9]/g, "").toUpperCase() || "ACCT";
   const serial = (serialNumber ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(-5).toUpperCase() || "XXXXX";
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const yyyy = date.getFullYear();
-  return `${acc}-${serial}-${dd}${mm}${yyyy}`;
+  const base = `${acc}-${serial}-${dd}${mm}${yyyy}`;
+
+  const taken = new Set(takenIds);
+  if (!taken.has(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 /** Saves PDF bytes to a file in the configured storage directory.
@@ -175,7 +275,9 @@ export function archiveOldReadings(months: number): { archived: number; archiveF
   const existingIds = new Set(existing.map(r => r.id));
   const newEntries  = toArchive.filter(r => !existingIds.has(r.id));
 
-  fs.writeFileSync(ARCHIVE_FILE, JSON.stringify([...existing, ...newEntries], null, 2), "utf-8");
+  const archiveTmp = `${ARCHIVE_FILE}.tmp`;
+  fs.writeFileSync(archiveTmp, JSON.stringify([...existing, ...newEntries], null, 2), "utf-8");
+  fs.renameSync(archiveTmp, ARCHIVE_FILE);
 
   data.meterReadings = toKeep;
   writeData(data);

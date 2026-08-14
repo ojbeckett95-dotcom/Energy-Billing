@@ -1,17 +1,9 @@
 import nodemailer from "nodemailer";
 import type { Bill, Customer, BrandingSettings, EmailSettings, Meter } from "./types";
-import { format } from "date-fns";
+import { formatDate } from "./format-date";
 
 function formatCurrency(amount: number): string {
   return `£${amount.toFixed(2)}`;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return format(new Date(dateStr), "dd/MM/yyyy");
-  } catch {
-    return dateStr;
-  }
 }
 
 function applyTemplate(template: string, vars: Record<string, string>): string {

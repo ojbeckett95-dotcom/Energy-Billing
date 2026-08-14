@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Zap, CalendarDays } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDate } from "@/lib/format-date";
 import type { TariffRate } from "@/lib/types";
 
 const today = new Date().toISOString().slice(0, 10);
@@ -147,8 +147,8 @@ export default function TariffsPage() {
                         <h3 className="font-semibold text-slate-900">{t.name}</h3>
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
                           <CalendarDays className="w-3.5 h-3.5" />
-                          From {format(new Date(t.effectiveFrom), "dd/MM/yyyy")}
-                          {t.effectiveTo ? ` to ${format(new Date(t.effectiveTo), "dd/MM/yyyy")}` : " (current)"}
+                          From {formatDate(t.effectiveFrom)}
+                          {t.effectiveTo ? ` to ${formatDate(t.effectiveTo)}` : " (current)"}
                         </div>
                       </div>
                     </div>

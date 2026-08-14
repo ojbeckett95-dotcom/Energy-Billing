@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, FileText, Send, Download, Trash2, Eye, CheckCircle, Clock, RefreshCw, AlertTriangle, RotateCcw } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDate } from "@/lib/format-date";
 import type { Bill, Customer, TariffRate, MeterReading, CustomerTariffSchedule, Meter } from "@/lib/types";
 
 const statusColors: Record<string, { bg: string; text: string; icon: React.ElementType }> = {
@@ -370,9 +370,9 @@ export default function BillsPage() {
                       </td>
                       <td className="px-5 py-3.5 font-medium text-slate-900">{b.customerName}</td>
                       <td className="px-5 py-3.5 text-slate-600 text-xs">
-                        {format(new Date(b.billingPeriodStart), "dd/MM/yy")} – {format(new Date(b.billingPeriodEnd), "dd/MM/yy")}
+                        {formatDate(b.billingPeriodStart)} – {formatDate(b.billingPeriodEnd)}
                       </td>
-                      <td className="px-5 py-3.5 text-slate-500">{format(new Date(b.generatedAt), "dd/MM/yyyy")}</td>
+                      <td className="px-5 py-3.5 text-slate-500">{formatDate(b.generatedAt)}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex flex-col gap-1">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium capitalize ${bg} ${text}`}>
@@ -525,7 +525,7 @@ export default function BillsPage() {
                   <label className="block text-xs font-medium text-slate-600 mb-1.5">Tariff Rate <span className="text-red-500">*</span></label>
                   <select value={form.tariffRateId} onChange={(e) => setForm({ ...form, tariffRateId: e.target.value })} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="">Select tariff...</option>
-                    {tariffs.map(t => <option key={t.id} value={t.id}>{t.name} (from {format(new Date(t.effectiveFrom), "dd/MM/yyyy")})</option>)}
+                    {tariffs.map(t => <option key={t.id} value={t.id}>{t.name} (from {formatDate(t.effectiveFrom)})</option>)}
                   </select>
                 </div>
 
@@ -596,7 +596,7 @@ export default function BillsPage() {
                         <option value="">Select opening reading...</option>
                         {openingReadingOptions.map(r => (
                           <option key={r.id} value={r.id}>
-                            {format(new Date(r.readingDate), "dd/MM/yyyy")} — T1: {r.tariff1Kwh} | T2: {r.tariff2Kwh}{r.tariff3Kwh !== undefined ? ` | T3: ${r.tariff3Kwh}` : ""}{r.tariff4Kwh !== undefined ? ` | T4: ${r.tariff4Kwh}` : ""} kWh
+                            {formatDate(r.readingDate)} — T1: {r.tariff1Kwh} | T2: {r.tariff2Kwh}{r.tariff3Kwh !== undefined ? ` | T3: ${r.tariff3Kwh}` : ""}{r.tariff4Kwh !== undefined ? ` | T4: ${r.tariff4Kwh}` : ""} kWh
                           </option>
                         ))}
                       </select>
@@ -607,7 +607,7 @@ export default function BillsPage() {
                         <option value="">Select closing reading...</option>
                         {closingReadingOptions.map(r => (
                           <option key={r.id} value={r.id}>
-                            {format(new Date(r.readingDate), "dd/MM/yyyy")} — T1: {r.tariff1Kwh} | T2: {r.tariff2Kwh}{r.tariff3Kwh !== undefined ? ` | T3: ${r.tariff3Kwh}` : ""}{r.tariff4Kwh !== undefined ? ` | T4: ${r.tariff4Kwh}` : ""} kWh
+                            {formatDate(r.readingDate)} — T1: {r.tariff1Kwh} | T2: {r.tariff2Kwh}{r.tariff3Kwh !== undefined ? ` | T3: ${r.tariff3Kwh}` : ""}{r.tariff4Kwh !== undefined ? ` | T4: ${r.tariff4Kwh}` : ""} kWh
                           </option>
                         ))}
                       </select>
@@ -627,14 +627,23 @@ export default function BillsPage() {
 
         {/* Bill Preview Modal */}
         {viewBill && (
-          <BillPreviewModal bill={viewBill} onClose={() => setViewBill(null)} onDownload={() => { downloadPdf(viewBill); }} />
+          <BillPreviewModal
+            bill={viewBill}
+            tariff={tariffs.find(t => t.id === viewBill.tariffRateId)}
+            onClose={() => setViewBill(null)}
+            onDownload={() => { downloadPdf(viewBill); }}
+          />
         )}
       </div>
     </AppShell>
   );
 }
 
-function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: () => void; onDownload: () => void }) {
+function BillPreviewModal(
+  { bill, tariff, onClose, onDownload }:
+  { bill: Bill; tariff?: TariffRate; onClose: () => void; onDownload: () => void },
+) {
+  const label = (n: 1 | 2 | 3 | 4) => tariff?.[`tariff${n}Label`] ?? `Tariff ${n}`;
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -644,12 +653,12 @@ function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: 
         </div>
         <div className="p-6 space-y-3 text-sm">
           <Row label="Invoice #" value={bill.id.toUpperCase()} />
-          <Row label="Period" value={`${format(new Date(bill.billingPeriodStart), "dd/MM/yyyy")} – ${format(new Date(bill.billingPeriodEnd), "dd/MM/yyyy")}`} />
+          <Row label="Period" value={`${formatDate(bill.billingPeriodStart)} – ${formatDate(bill.billingPeriodEnd)}`} />
           <div className="border-t border-slate-100 pt-3 mt-3">
-            <Row label={`Tariff 1 (${bill.tariff1Usage.toFixed(2)} kWh)`} value={`£${bill.tariff1Cost.toFixed(2)}`} />
-            <Row label={`Tariff 2 (${bill.tariff2Usage.toFixed(2)} kWh)`} value={`£${bill.tariff2Cost.toFixed(2)}`} />
-            {bill.tariff3Usage !== undefined && <Row label={`Tariff 3 (${bill.tariff3Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff3Cost ?? 0).toFixed(2)}`} />}
-            {bill.tariff4Usage !== undefined && <Row label={`Tariff 4 (${bill.tariff4Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff4Cost ?? 0).toFixed(2)}`} />}
+            <Row label={`${label(1)} (${bill.tariff1Usage.toFixed(2)} kWh)`} value={`£${bill.tariff1Cost.toFixed(2)}`} />
+            <Row label={`${label(2)} (${bill.tariff2Usage.toFixed(2)} kWh)`} value={`£${bill.tariff2Cost.toFixed(2)}`} />
+            {bill.tariff3Usage !== undefined && <Row label={`${label(3)} (${bill.tariff3Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff3Cost ?? 0).toFixed(2)}`} />}
+            {bill.tariff4Usage !== undefined && <Row label={`${label(4)} (${bill.tariff4Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff4Cost ?? 0).toFixed(2)}`} />}
             <Row label="Standing Charge" value={`£${bill.standingCharge.toFixed(2)}`} />
             <Row label="Subtotal" value={`£${bill.subtotal.toFixed(2)}`} />
             <Row label="VAT" value={`£${bill.vat.toFixed(2)}`} />

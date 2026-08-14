@@ -27,6 +27,11 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: process.env.NEXT_BUILD_DIR
     ? path.resolve(__dirname)
     : path.resolve(__dirname, '../../'),
+  // data/ holds the live database and generated PDFs of whichever machine runs
+  // the build; it must never be traced into the standalone output.
+  outputFileTracingExcludes: {
+    '*': ['data/**'],
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

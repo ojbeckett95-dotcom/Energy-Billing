@@ -1,6 +1,6 @@
 import { PDFDocument, rgb, StandardFonts, PDFPage, PDFFont } from "pdf-lib";
 import type { Bill, Customer, TariffRate, BrandingSettings, MeterReading, Meter } from "./types";
-import { format } from "date-fns";
+import { formatDate } from "./format-date";
 
 function hexToRgb(hex: string): [number, number, number] {
   const r = parseInt(hex.slice(1, 3), 16) / 255;
@@ -11,14 +11,6 @@ function hexToRgb(hex: string): [number, number, number] {
 
 function formatCurrency(amount: number): string {
   return `£${amount.toFixed(2)}`;
-}
-
-function formatDate(dateStr: string): string {
-  try {
-    return format(new Date(dateStr), "dd/MM/yyyy");
-  } catch {
-    return dateStr;
-  }
 }
 
 function drawText(

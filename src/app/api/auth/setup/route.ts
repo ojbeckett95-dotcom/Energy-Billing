@@ -1,31 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readData, writeData } from "@/lib/db";
-import { hashPassword, createSessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
+import { readData, updateData } from "@/lib/db";
+import {
+  hashPassword,
+  createSessionToken,
+  getSessionSecret,
+  sessionCookieOptions,
+  COOKIE_NAME,
+  MIN_PASSWORD_LENGTH,
+} from "@/lib/auth-server";
 
 // Only callable when no password is set yet (first-run setup)
 export async function POST(req: NextRequest) {
-  const data = readData();
-  if (data.authSettings?.passwordHash) {
+  if (readData().authSettings?.passwordHash) {
     return NextResponse.json({ error: "Password already configured" }, { status: 403 });
   }
 
-  const { password } = await req.json() as { password: string };
-  if (!password || password.length < 6) {
-    return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+  let password: unknown;
+  let recoveryPassword: unknown;
+  try {
+    ({ password, recoveryPassword } = await req.json() as { password?: unknown; recoveryPassword?: unknown });
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  if (typeof password !== "string" || password.length < MIN_PASSWORD_LENGTH) {
+    return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` }, { status: 400 });
+  }
+  if (typeof recoveryPassword !== "string" || recoveryPassword.length < MIN_PASSWORD_LENGTH) {
+    return NextResponse.json({ error: `Recovery password must be at least ${MIN_PASSWORD_LENGTH} characters` }, { status: 400 });
+  }
+  if (recoveryPassword === password) {
+    return NextResponse.json({ error: "Recovery password must differ from your password" }, { status: 400 });
   }
 
-  data.authSettings.passwordHash = await hashPassword(password);
-  writeData(data);
+  const [passwordHash, recoveryCodeHash] = await Promise.all([
+    hashPassword(password),
+    hashPassword(recoveryPassword),
+  ]);
 
-  const secret = process.env.SESSION_SECRET ?? getSessionSecret();
-  const token = createSessionToken(secret);
+  const created = updateData((data) => {
+    if (data.authSettings?.passwordHash) return false;
+    data.authSettings = { ...data.authSettings, passwordHash, recoveryCodeHash };
+    return true;
+  });
+  if (!created) {
+    return NextResponse.json({ error: "Password already configured" }, { status: 403 });
+  }
+
+  const token = createSessionToken(getSessionSecret());
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 8 * 3600,
-  });
+  res.cookies.set(COOKIE_NAME, token, sessionCookieOptions());
   return res;
 }

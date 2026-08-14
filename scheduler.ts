@@ -1,7 +1,8 @@
 // Background scheduler: auto meter readings + auto billing
 // Run with: bun run scheduler.ts
 
-import { readData, writeData, generateBillId, generateId, getActiveTariffId, saveBillPDFToFile } from "./src/lib/db";
+import { readData, updateData, generateBillId, generateId, getActiveTariffId, saveBillPDFToFile } from "./src/lib/db";
+import { calculateBillCharges } from "./src/lib/billing";
 import { readMeterTCP } from "./src/lib/modbus";
 import { generateBillPDF } from "./src/lib/pdf-generator";
 import { sendBillEmail, sendBillEmailFailureNotification } from "./src/lib/email";
@@ -56,9 +57,7 @@ async function runAutoReadings() {
           ...(result.tariff4Kwh !== undefined && { tariff4Kwh: result.tariff4Kwh }),
           readMethod: "modbus",
         };
-        const fresh = readData();
-        fresh.meterReadings.push(reading);
-        writeData(fresh);
+        updateData((fresh) => { fresh.meterReadings.push(reading); });
         ok++;
         console.log(`[scheduler]   ✓ ${meter.name}: T1=${result.tariff1Kwh} T2=${result.tariff2Kwh} kWh`);
       } else {
@@ -69,9 +68,7 @@ async function runAutoReadings() {
     }
   }
 
-  const updated = readData();
-  updated.schedulerSettings.lastAutoReadAt = new Date().toISOString();
-  writeData(updated);
+  updateData((fresh) => { fresh.schedulerSettings.lastAutoReadAt = new Date().toISOString(); });
   console.log(`[scheduler] Auto-readings done: ${ok}/${meters.length} succeeded`);
 }
 
@@ -188,32 +185,14 @@ async function runAutoBilling() {
           continue;
         }
 
-        const tariff1Usage = Math.max(0, closingReading.tariff1Kwh - openingReading.tariff1Kwh);
-        const tariff2Usage = tariff.tariff2Enabled !== false
-          ? Math.max(0, closingReading.tariff2Kwh - openingReading.tariff2Kwh)
-          : 0;
-        const tariff3Usage = tariff.tariff3Enabled
-          ? Math.max(0, (closingReading.tariff3Kwh ?? 0) - (openingReading.tariff3Kwh ?? 0))
-          : 0;
-        const tariff4Usage = tariff.tariff4Enabled
-          ? Math.max(0, (closingReading.tariff4Kwh ?? 0) - (openingReading.tariff4Kwh ?? 0))
-          : 0;
-        const tariff1Cost = tariff1Usage * tariff.tariff1RatePerKwh;
-        const tariff2Cost = tariff2Usage * tariff.tariff2RatePerKwh;
-        const tariff3Cost = tariff3Usage * (tariff.tariff3RatePerKwh ?? 0);
-        const tariff4Cost = tariff4Usage * (tariff.tariff4RatePerKwh ?? 0);
-
-        const billingDays = Math.ceil(
-          (new Date(billingPeriodEnd).getTime() - new Date(billingPeriodStart).getTime()) /
-            (1000 * 60 * 60 * 24),
+        const charges = calculateBillCharges(
+          tariff, openingReading, closingReading, billingPeriodStart, billingPeriodEnd,
         );
-        const standingCharge = billingDays * tariff.standingChargePerDay;
-        const subtotal = tariff1Cost + tariff2Cost + tariff3Cost + tariff4Cost + standingCharge;
-        const vat = subtotal * (tariff.vatRate / 100);
-        const total = subtotal + vat;
+        const total = charges.total;
 
+        const generatedAt = new Date();
         const bill: Bill = {
-          id: generateBillId(customer.accountNumber, meter.serialNumber, new Date()),
+          id: generateBillId(customer.accountNumber, meter.serialNumber, generatedAt),
           customerId: customer.id,
           meterId: meter.id,
           tariffRateId: tariff.id,
@@ -221,19 +200,35 @@ async function runAutoBilling() {
           billingPeriodEnd,
           openingReadingId: openingReading.id,
           closingReadingId: closingReading.id,
-          tariff1Usage,
-          tariff2Usage,
-          ...(tariff.tariff3Enabled && { tariff3Usage, tariff3Cost }),
-          ...(tariff.tariff4Enabled && { tariff4Usage, tariff4Cost }),
-          tariff1Cost,
-          tariff2Cost,
-          standingCharge,
-          subtotal,
-          vat,
-          total,
+          tariff1Usage: charges.tariff1Usage,
+          tariff2Usage: charges.tariff2Usage,
+          ...(charges.tariff3Usage !== undefined && { tariff3Usage: charges.tariff3Usage, tariff3Cost: charges.tariff3Cost }),
+          ...(charges.tariff4Usage !== undefined && { tariff4Usage: charges.tariff4Usage, tariff4Cost: charges.tariff4Cost }),
+          tariff1Cost: charges.tariff1Cost,
+          tariff2Cost: charges.tariff2Cost,
+          standingCharge: charges.standingCharge,
+          subtotal: charges.subtotal,
+          vat: charges.vat,
+          total: charges.total,
           status: "draft",
-          generatedAt: new Date().toISOString(),
+          generatedAt: generatedAt.toISOString(),
         };
+
+        // Claim the bill ID and save it before the PDF/email work, so neither can lose it.
+        updateData((fresh) => {
+          bill.id = generateBillId(customer.accountNumber, meter.serialNumber, generatedAt, fresh.bills.map(b => b.id));
+          fresh.bills.push(bill);
+          fresh.meterReadings = fresh.meterReadings.map(r => {
+            if (r.meterId !== meter.id) return r;
+            if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
+            return { ...r, billedInBillId: bill.id };
+          });
+          const custIdx = fresh.customers.findIndex(c => c.id === customer.id);
+          if (custIdx >= 0) {
+            fresh.customers[custIdx] = { ...fresh.customers[custIdx], lastAutoBilledAt: todayStr };
+          }
+        });
+        ok++;
 
         // Generate PDF
         try {
@@ -246,24 +241,13 @@ async function runAutoBilling() {
           } else {
             bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
           }
+          updateData((fresh) => {
+            const idx = fresh.bills.findIndex(b => b.id === bill.id);
+            if (idx >= 0) fresh.bills[idx] = bill;
+          });
         } catch (err) {
           console.error(`[scheduler]   PDF error for ${customer.name}/${meter.name}:`, err);
         }
-
-        // Save bill to disk immediately (before email attempt, so it's never lost)
-        const fresh = readData();
-        fresh.bills.push(bill);
-        fresh.meterReadings = fresh.meterReadings.map(r => {
-          if (r.meterId !== meter.id) return r;
-          if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
-          return { ...r, billedInBillId: bill.id };
-        });
-        const custIdx = fresh.customers.findIndex(c => c.id === customer.id);
-        if (custIdx >= 0) {
-          fresh.customers[custIdx] = { ...fresh.customers[custIdx], lastAutoBilledAt: todayStr };
-        }
-        writeData(fresh);
-        ok++;
 
         // Send email (after saving — a hang or failure here won't lose the bill)
         const hasPdf = bill.pdfBase64 || bill.pdfFilePath;
@@ -274,18 +258,20 @@ async function runAutoBilling() {
           const emailResult = await sendBillEmail(
             bill, customer, data.branding, data.emailSettings, pdfBytes, meter,
           );
-          const billUpdate = readData();
-          const billIdx = billUpdate.bills.findIndex(b => b.id === bill.id);
-          if (billIdx >= 0) {
+          updateData((billUpdate) => {
+            const billIdx = billUpdate.bills.findIndex(b => b.id === bill.id);
+            if (billIdx < 0) return;
             if (emailResult.success) {
               billUpdate.bills[billIdx] = { ...billUpdate.bills[billIdx], status: "sent", sentAt: new Date().toISOString() };
-              console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — emailed`);
             } else {
               billUpdate.bills[billIdx] = { ...billUpdate.bills[billIdx], emailError: emailResult.error ?? "Unknown email error" };
-              console.warn(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — email failed: ${emailResult.error}`);
-              await sendBillEmailFailureNotification(customer, bill, emailResult.error ?? "Unknown", data.emailSettings, data.branding);
             }
-            writeData(billUpdate);
+          });
+          if (emailResult.success) {
+            console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — emailed`);
+          } else {
+            console.warn(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — email failed: ${emailResult.error}`);
+            await sendBillEmailFailureNotification(customer, bill, emailResult.error ?? "Unknown", data.emailSettings, data.branding);
           }
         } else if (!data.schedulerSettings.autoBillingSendEmail || !customer.email || !hasPdf) {
           console.log(`[scheduler]   ✓ ${customer.name}/${meter.name}: £${total.toFixed(2)} — saved as draft`);
@@ -297,29 +283,28 @@ async function runAutoBilling() {
   }
 
   // Update global lastAutoBillingAt for info only
-  const updated = readData();
-  updated.schedulerSettings.lastAutoBillingAt = todayStr;
-  writeData(updated);
+  updateData((fresh) => { fresh.schedulerSettings.lastAutoBillingAt = todayStr; });
   console.log(`[scheduler] Auto-billing done: ${ok} bill(s) generated`);
 }
 
 function runAutoArchive() {
-  const data = readData();
   const threeMonthsAgo = new Date();
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
   const cutoff = threeMonthsAgo.toISOString();
 
-  let count = 0;
-  data.meterReadings = data.meterReadings.map((r) => {
-    if (!r.archived && r.billedInBillId && r.readingDate < cutoff) {
-      count++;
-      return { ...r, archived: true };
-    }
-    return r;
+  const count = updateData((data) => {
+    let archived = 0;
+    data.meterReadings = data.meterReadings.map((r) => {
+      if (!r.archived && r.billedInBillId && r.readingDate < cutoff) {
+        archived++;
+        return { ...r, archived: true };
+      }
+      return r;
+    });
+    return archived;
   });
 
   if (count > 0) {
-    writeData(data);
     console.log(`[scheduler] Auto-archived ${count} billed reading(s) older than 3 months`);
   }
 }
@@ -334,6 +319,12 @@ async function tick() {
   }
 }
 
+// Chained timer instead of setInterval: a slow tick delays the next one rather than
+// running concurrently with it.
+async function loop() {
+  await tick();
+  setTimeout(loop, CHECK_INTERVAL_MS);
+}
+
 console.log("[scheduler] Started. Checking every minute.");
-tick();
-setInterval(tick, CHECK_INTERVAL_MS);
+void loop();

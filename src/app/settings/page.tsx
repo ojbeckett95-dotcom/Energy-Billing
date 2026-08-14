@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Settings, Wifi, Info, Clock, RefreshCw, CalendarDays, Mail, Save, FolderOpen, FolderSearch, Network, Archive, RotateCcw, ShieldCheck } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { toast } from "sonner";
-import { format } from "date-fns";
+import { formatDate, formatDateTime } from "@/lib/format-date";
 import type { SchedulerSettings } from "@/lib/types";
 
 const DEFAULT_SCHEDULER: SchedulerSettings = {
@@ -18,6 +18,7 @@ const DEFAULT_SCHEDULER: SchedulerSettings = {
   autoBillingTimeOfDay: "09:00",
   pdfStoragePath: "",
   serverPort: 3001,
+  allowNetworkAccess: false,
   readingsArchiveMonths: 0,
 };
 
@@ -38,6 +39,7 @@ export default function SystemSettingsPage() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newRecoveryPassword, setNewRecoveryPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
@@ -68,12 +70,20 @@ export default function SystemSettingsPage() {
   async function saveScheduler() {
     setSavingScheduler(true);
     try {
-      await fetch("/api/scheduler-settings", {
+      const r = await fetch("/api/scheduler-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(scheduler),
       });
-      toast.success("Scheduler settings saved");
+      const body = await r.json().catch(() => null);
+      if (!r.ok) {
+        toast.error(body?.error ?? "Could not save settings");
+        return;
+      }
+      setScheduler(prev => ({ ...prev, ...body }));
+      toast.success("Settings saved");
+    } catch {
+      toast.error("Could not save settings");
     } finally {
       setSavingScheduler(false);
     }
@@ -127,21 +137,32 @@ export default function SystemSettingsPage() {
   }
 
   async function changePassword() {
-    if (newPassword.length < 6) { toast.error("New password must be at least 6 characters"); return; }
-    if (newPassword !== confirmPassword) { toast.error("New passwords do not match"); return; }
+    if (!newPassword && !newRecoveryPassword) { toast.error("Enter a new password or a new recovery password"); return; }
+    if (newPassword) {
+      if (newPassword.length < 8) { toast.error("New password must be at least 8 characters"); return; }
+      if (newPassword !== confirmPassword) { toast.error("New passwords do not match"); return; }
+    }
+    if (newRecoveryPassword && newRecoveryPassword.length < 8) {
+      toast.error("Recovery password must be at least 8 characters"); return;
+    }
     setChangingPassword(true);
     try {
       const r = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({
+          currentPassword,
+          ...(newPassword ? { newPassword } : {}),
+          ...(newRecoveryPassword ? { newRecoveryPassword } : {}),
+        }),
       });
       const data = await r.json();
       if (r.ok) {
-        toast.success("Password changed successfully");
+        toast.success("Saved. Other signed-in sessions were signed out.");
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
+        setNewRecoveryPassword("");
       } else {
         toast.error(data.error ?? "Failed to change password");
       }
@@ -214,7 +235,7 @@ export default function SystemSettingsPage() {
                 {scheduler.lastAutoReadAt && (
                   <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
-                    Last run: {format(new Date(scheduler.lastAutoReadAt), "dd/MM/yyyy HH:mm")}
+                    Last run: {formatDateTime(scheduler.lastAutoReadAt)}
                   </p>
                 )}
                 <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -337,7 +358,7 @@ export default function SystemSettingsPage() {
                 {scheduler.lastAutoBillingAt && (
                   <p className="text-xs text-slate-400 flex items-center gap-1.5">
                     <Clock className="w-3 h-3" />
-                    Last run: {format(new Date(scheduler.lastAutoBillingAt), "dd/MM/yyyy")}
+                    Last run: {formatDate(scheduler.lastAutoBillingAt)}
                   </p>
                 )}
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -417,9 +438,25 @@ export default function SystemSettingsPage() {
             </button>
           </div>
           <p className="text-xs text-slate-500 mb-4">
-            The server listens on all network interfaces (<code className="font-mono">0.0.0.0</code>), so it is reachable from other devices on your network.
-            The port can be changed here — the app must be restarted for a new port to take effect.
+            By default the server only accepts connections from this machine (<code className="font-mono">127.0.0.1</code>).
+            Enable network access to reach it from other devices on your network. A restart is required for either
+            setting to take effect.
           </p>
+          <label className="flex items-start gap-3 cursor-pointer mb-5">
+            <div
+              onClick={() => set("allowNetworkAccess", !scheduler.allowNetworkAccess)}
+              className={`relative mt-0.5 w-11 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${scheduler.allowNetworkAccess ? "bg-blue-600" : "bg-slate-300"}`}
+            >
+              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${scheduler.allowNetworkAccess ? "translate-x-6" : "translate-x-1"}`} />
+            </div>
+            <div>
+              <span className="text-sm font-medium text-slate-800">Allow access from other devices on the network</span>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Others sign in at <code className="font-mono">http://&lt;this-server&gt;:{scheduler.serverPort ?? 3001}</code> with the same password.
+                Traffic is unencrypted HTTP, so only enable this on a network you trust.
+              </p>
+            </div>
+          </label>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Server port</label>
             <div className="flex items-center gap-3">
@@ -435,7 +472,7 @@ export default function SystemSettingsPage() {
             </div>
             <div className="flex items-center gap-3 mt-3">
               <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex-1">
-                A restart is required for a port change to take effect.
+                A restart is required for these changes to take effect.
               </p>
               <button
                 onClick={restartApp}
@@ -510,7 +547,8 @@ export default function SystemSettingsPage() {
             <ShieldCheck className="w-4 h-4" /> Security
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            Change the login password for this application. Enter your current password (or the recovery password) to confirm the change.
+            Change the login password or the recovery password for this application. Your current password (or
+            recovery password) confirms the change. Other signed-in sessions are signed out.
           </p>
           <div className="space-y-3 max-w-sm">
             <div>
@@ -530,7 +568,7 @@ export default function SystemSettingsPage() {
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
               />
             </div>
             <div>
@@ -543,15 +581,25 @@ export default function SystemSettingsPage() {
                 placeholder="Repeat new password"
               />
             </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1.5">New recovery password</label>
+              <input
+                type="password"
+                value={newRecoveryPassword}
+                onChange={e => setNewRecoveryPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Leave blank to keep the current one"
+              />
+            </div>
             <button
               onClick={changePassword}
-              disabled={changingPassword || !currentPassword || !newPassword || !confirmPassword}
+              disabled={changingPassword || !currentPassword || (!newPassword && !newRecoveryPassword)}
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
             >
               {changingPassword
                 ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 : <ShieldCheck className="w-3.5 h-3.5" />}
-              {changingPassword ? "Changing…" : "Change Password"}
+              {changingPassword ? "Saving…" : "Save Passwords"}
             </button>
           </div>
         </div>

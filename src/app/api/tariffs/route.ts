@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readData, writeData, generateId } from "@/lib/db";
+import { readData, updateData, generateId } from "@/lib/db";
+import { parseBody, tariffSchema } from "@/lib/validation";
 import type { TariffRate } from "@/lib/types";
 
 export async function GET() {
@@ -8,10 +9,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json() as Omit<TariffRate, "id">;
-  const data = readData();
-  const tariff: TariffRate = { ...body, id: generateId() };
-  data.tariffRates.push(tariff);
-  writeData(data);
+  const parsed = await parseBody(req, tariffSchema);
+  if (!parsed.ok) return parsed.response;
+  const tariff: TariffRate = { ...parsed.data, id: generateId() };
+  updateData((data) => { data.tariffRates.push(tariff); });
   return NextResponse.json(tariff, { status: 201 });
 }
