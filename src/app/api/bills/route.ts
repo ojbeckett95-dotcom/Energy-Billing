@@ -139,8 +139,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
     }
   } catch (err) {
+    // A bill without its PDF is incomplete, so save nothing and let the caller retry.
     console.error("PDF generation failed:", err);
-    bill.pdfError = err instanceof Error ? err.message : String(err);
+    return NextResponse.json(
+      { error: `PDF generation failed, bill not created: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 },
+    );
   }
 
   data.bills.push(bill);

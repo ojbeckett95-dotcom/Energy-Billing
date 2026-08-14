@@ -103,7 +103,6 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
       bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
       bill.pdfFilePath = undefined;
     }
-    bill.pdfError = undefined;
     data.bills[idx] = bill;
     writeData(data);
     return NextResponse.json({ success: true });

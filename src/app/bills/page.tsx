@@ -119,11 +119,7 @@ export default function BillsPage() {
         openingReadingId: form.openingReadingId,
         closingReadingId: form.closingReadingId,
       });
-      if (bill.pdfError) {
-        toast.error(`Bill generated but its PDF failed: ${bill.pdfError}`);
-      } else {
-        toast.success("Bill generated successfully");
-      }
+      toast.success("Bill generated successfully");
       setShowForm(false);
       load();
     } catch (err) {
@@ -374,12 +370,6 @@ export default function BillsPage() {
                             <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-0.5" title={b.emailError}>
                               <AlertTriangle className="w-3 h-3 flex-shrink-0" />
                               Email failed
-                            </span>
-                          )}
-                          {b.pdfError && (
-                            <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-0.5" title={b.pdfError}>
-                              <AlertTriangle className="w-3 h-3 flex-shrink-0" />
-                              PDF failed
                             </span>
                           )}
                         </div>
@@ -661,15 +651,6 @@ function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: 
               <div>
                 <p className="font-medium">Email failed to send</p>
                 <p className="mt-0.5 text-amber-700">{bill.emailError}</p>
-              </div>
-            </div>
-          )}
-          {bill.pdfError && (
-            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800 mt-2">
-              <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="font-medium">PDF could not be generated</p>
-                <p className="mt-0.5 text-red-700">{bill.pdfError}</p>
               </div>
             </div>
           )}

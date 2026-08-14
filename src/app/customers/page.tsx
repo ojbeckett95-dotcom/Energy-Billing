@@ -130,10 +130,9 @@ export default function CustomersPage() {
     setBillingNow(true);
     try {
       const result = await apiSend<{
-        results: { meter: string; error?: string; pdfError?: string }[];
+        results: { meter: string; error?: string }[];
         generated: number;
         failed: number;
-        pdfFailed: number;
       }>(`/api/customers/${editId}/bill-now`, "POST");
       if (result.generated === 0) {
         const reasons = result.results.map((x) => x.error).filter(Boolean);
@@ -141,10 +140,6 @@ export default function CustomersPage() {
       } else {
         toast.success(`${result.generated} bill${result.generated !== 1 ? "s" : ""} generated`);
         if (result.failed > 0) toast.warning(`${result.failed} meter(s) skipped — check readings/tariff`);
-        if (result.pdfFailed > 0) {
-          const pdfErrors = result.results.filter((x) => x.pdfError).map((x) => `${x.meter}: ${x.pdfError}`);
-          toast.error(`PDF generation failed for ${result.pdfFailed} bill(s) — ${pdfErrors.join("; ")}`);
-        }
       }
       load();
     } catch (err) {

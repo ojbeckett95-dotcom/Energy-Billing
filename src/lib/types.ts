@@ -101,7 +101,6 @@ export interface Bill {
   pdfBase64?: string;
   pdfFilePath?: string; // absolute path to saved PDF file (used when pdfStoragePath is configured)
   emailError?: string; // set when auto-billing email failed to send
-  pdfError?: string; // set when PDF generation or saving failed
 }
 
 export interface BrandingSettings {

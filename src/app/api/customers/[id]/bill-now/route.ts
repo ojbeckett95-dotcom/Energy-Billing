@@ -16,7 +16,7 @@ export const POST = withErrorHandling(async (_: NextRequest, { params }: { param
     return NextResponse.json({ error: "No meters configured for this customer" }, { status: 400 });
   }
 
-  const results: { meter: string; billId?: string; error?: string; pdfError?: string }[] = [];
+  const results: { meter: string; billId?: string; error?: string }[] = [];
 
   for (const meter of customerMeters) {
     const meterReadings = data.meterReadings
@@ -110,8 +110,14 @@ export const POST = withErrorHandling(async (_: NextRequest, { params }: { param
         bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
       }
     } catch (err) {
+      // Without a PDF the bill is incomplete, so leave nothing behind and let
+      // the next run bill this meter again.
       console.error(`bill-now PDF error for ${meter.name}:`, err);
-      bill.pdfError = err instanceof Error ? err.message : String(err);
+      results.push({
+        meter: meter.name,
+        error: `PDF generation failed, bill not created: ${err instanceof Error ? err.message : String(err)}`,
+      });
+      continue;
     }
 
     // Save bill + mark readings as billed + update lastAutoBilledAt
@@ -131,12 +137,11 @@ export const POST = withErrorHandling(async (_: NextRequest, { params }: { param
     }
     writeData(fresh);
 
-    results.push({ meter: meter.name, billId: bill.id, ...(bill.pdfError && { pdfError: bill.pdfError }) });
+    results.push({ meter: meter.name, billId: bill.id });
   }
 
   const generated = results.filter((r) => r.billId).length;
   const failed = results.filter((r) => r.error).length;
-  const pdfFailed = results.filter((r) => r.pdfError).length;
 
-  return NextResponse.json({ results, generated, failed, pdfFailed });
+  return NextResponse.json({ results, generated, failed });
 });
