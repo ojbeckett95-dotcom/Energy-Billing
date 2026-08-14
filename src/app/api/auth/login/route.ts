@@ -19,9 +19,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Password required" }, { status: 400 });
   }
 
-  const data = readData();
-  const ok = await verifyPassword(password, data.authSettings?.passwordHash);
-  if (!ok) {
+  const auth = readData().authSettings;
+  const passwordOk = await verifyPassword(password, auth?.passwordHash);
+  // The recovery password is set during first-run setup and is unique to this install.
+  const usedRecovery = !passwordOk && await verifyPassword(password, auth?.recoveryCodeHash);
+  if (!passwordOk && !usedRecovery) {
     registerFailure(key);
     return NextResponse.json({ error: "Incorrect password" }, { status: 401 });
   }
@@ -29,7 +31,7 @@ export async function POST(req: NextRequest) {
 
   const token = createSessionToken(getSessionSecret());
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, usedRecovery });
   res.cookies.set(COOKIE_NAME, token, sessionCookieOptions());
   return res;
 }

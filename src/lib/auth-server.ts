@@ -38,6 +38,9 @@ export async function verifyPassword(password: string, storedHash: string | unde
   return checkPassword(password, storedHash);
 }
 
+/** Minimum length for both the login password and the recovery password. */
+export const MIN_PASSWORD_LENGTH = 8;
+
 // ── Session tokens (HMAC-SHA256) ─────────────────────────────────────────────
 
 export function createSessionToken(secret: string): string {

@@ -164,8 +164,9 @@ export interface CustomerTariffSchedule {
 }
 
 export interface AuthSettings {
-  passwordHash?: string;   // scrypt hash of user-set password; undefined = not yet configured
-  sessionSecret: string;   // HMAC-SHA256 signing key for session tokens
+  passwordHash?: string;      // scrypt hash of user-set password; undefined = not yet configured
+  sessionSecret: string;      // HMAC-SHA256 signing key for session tokens
+  recoveryCodeHash?: string;  // scrypt hash of this install's recovery code
 }
 
 export interface AppData {
