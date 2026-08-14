@@ -627,14 +627,23 @@ export default function BillsPage() {
 
         {/* Bill Preview Modal */}
         {viewBill && (
-          <BillPreviewModal bill={viewBill} onClose={() => setViewBill(null)} onDownload={() => { downloadPdf(viewBill); }} />
+          <BillPreviewModal
+            bill={viewBill}
+            tariff={tariffs.find(t => t.id === viewBill.tariffRateId)}
+            onClose={() => setViewBill(null)}
+            onDownload={() => { downloadPdf(viewBill); }}
+          />
         )}
       </div>
     </AppShell>
   );
 }
 
-function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: () => void; onDownload: () => void }) {
+function BillPreviewModal(
+  { bill, tariff, onClose, onDownload }:
+  { bill: Bill; tariff?: TariffRate; onClose: () => void; onDownload: () => void },
+) {
+  const label = (n: 1 | 2 | 3 | 4) => tariff?.[`tariff${n}Label`] ?? `Tariff ${n}`;
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -646,10 +655,10 @@ function BillPreviewModal({ bill, onClose, onDownload }: { bill: Bill; onClose: 
           <Row label="Invoice #" value={bill.id.toUpperCase()} />
           <Row label="Period" value={`${format(new Date(bill.billingPeriodStart), "dd/MM/yyyy")} – ${format(new Date(bill.billingPeriodEnd), "dd/MM/yyyy")}`} />
           <div className="border-t border-slate-100 pt-3 mt-3">
-            <Row label={`Tariff 1 (${bill.tariff1Usage.toFixed(2)} kWh)`} value={`£${bill.tariff1Cost.toFixed(2)}`} />
-            <Row label={`Tariff 2 (${bill.tariff2Usage.toFixed(2)} kWh)`} value={`£${bill.tariff2Cost.toFixed(2)}`} />
-            {bill.tariff3Usage !== undefined && <Row label={`Tariff 3 (${bill.tariff3Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff3Cost ?? 0).toFixed(2)}`} />}
-            {bill.tariff4Usage !== undefined && <Row label={`Tariff 4 (${bill.tariff4Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff4Cost ?? 0).toFixed(2)}`} />}
+            <Row label={`${label(1)} (${bill.tariff1Usage.toFixed(2)} kWh)`} value={`£${bill.tariff1Cost.toFixed(2)}`} />
+            <Row label={`${label(2)} (${bill.tariff2Usage.toFixed(2)} kWh)`} value={`£${bill.tariff2Cost.toFixed(2)}`} />
+            {bill.tariff3Usage !== undefined && <Row label={`${label(3)} (${bill.tariff3Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff3Cost ?? 0).toFixed(2)}`} />}
+            {bill.tariff4Usage !== undefined && <Row label={`${label(4)} (${bill.tariff4Usage.toFixed(2)} kWh)`} value={`£${(bill.tariff4Cost ?? 0).toFixed(2)}`} />}
             <Row label="Standing Charge" value={`£${bill.standingCharge.toFixed(2)}`} />
             <Row label="Subtotal" value={`£${bill.subtotal.toFixed(2)}`} />
             <Row label="VAT" value={`£${bill.vat.toFixed(2)}`} />
