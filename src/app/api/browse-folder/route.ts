@@ -1,13 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { requireAuth } from "@/lib/auth-server";
 
 const execFileAsync = promisify(execFile);
+
+/** Escapes a path for embedding in an AppleScript double-quoted string literal. */
+function escapeAppleScript(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
 
 // Opens a native OS folder-picker dialog on the server machine (works for local installs).
 // Query param: ?current=<path> to pre-select a folder.
 export async function GET(req: NextRequest) {
-  const current = new URL(req.url).searchParams.get("current") ?? "";
+  const unauthorized = requireAuth(req);
+  if (unauthorized) return unauthorized;
+
+  // Strip line breaks so the value cannot add statements to the generated scripts
+  const current = (new URL(req.url).searchParams.get("current") ?? "").replace(/[\r\n]/g, "");
 
   try {
     const platform = process.platform;
@@ -32,12 +42,12 @@ if ($result -eq 'OK') { Write-Output $f.SelectedPath }
 
     } else if (platform === "darwin") {
       const appleScript = current
-        ? `choose folder with prompt "Select PDF storage folder" default location POSIX file "${current}"`
+        ? `choose folder with prompt "Select PDF storage folder" default location POSIX file "${escapeAppleScript(current)}"`
         : `choose folder with prompt "Select PDF storage folder"`;
       const { stdout } = await execFileAsync("osascript", ["-e", appleScript], { timeout: 60_000 });
       const alias = stdout.trim();
       // Convert "alias Macintosh HD:Users:foo:bar:" → POSIX path
-      const { stdout: posix } = await execFileAsync("osascript", ["-e", `POSIX path of ("${alias}" as alias)`], { timeout: 5000 });
+      const { stdout: posix } = await execFileAsync("osascript", ["-e", `POSIX path of ("${escapeAppleScript(alias)}" as alias)`], { timeout: 5000 });
       const selected = posix.trim().replace(/\/$/, "");
       if (!selected) return NextResponse.json({ cancelled: true });
       return NextResponse.json({ path: selected });

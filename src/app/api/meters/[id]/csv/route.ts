@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData, generateId } from "@/lib/db";
 
+/** Neutralises spreadsheet formulas in exported CSV cells. */
+function csvCell(value: string): string {
+  return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+}
+
+/** Keeps a value safe to interpolate into a Content-Disposition filename. */
+function safeFilenamePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64);
+}
+
 // GET /api/meters/[id]/csv — export all readings for this meter as CSV
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -19,7 +29,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
       r.tariff2Kwh,
       r.readMethod,
       r.billedInBillId ?? "",
-      `"${(r.notes ?? "").replace(/"/g, '""')}"`,
+      `"${csvCell(r.notes ?? "").replace(/"/g, '""')}"`,
     ].join(",")
   );
 
@@ -28,7 +38,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="meter-${id}.csv"`,
+      "Content-Disposition": `attachment; filename="meter-${safeFilenamePart(id)}.csv"`,
     },
   });
 }

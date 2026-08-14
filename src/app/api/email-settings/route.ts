@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
 import { testSmtpConnection } from "@/lib/email";
+import { requireAuth } from "@/lib/auth-server";
 import type { EmailSettings } from "@/lib/types";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const unauthorized = requireAuth(req);
+  if (unauthorized) return unauthorized;
+
   const data = readData();
   // Mask password
   const settings = { ...data.emailSettings, smtpPassword: data.emailSettings.smtpPassword ? "••••••••" : "" };
@@ -11,6 +15,9 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
+  const unauthorized = requireAuth(req);
+  if (unauthorized) return unauthorized;
+
   const body = await req.json() as Partial<EmailSettings>;
   const data = readData();
   // Don't overwrite password if masked value sent
@@ -23,6 +30,9 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const unauthorized = requireAuth(req);
+  if (unauthorized) return unauthorized;
+
   const { action } = await req.json() as { action: string };
   if (action === "test") {
     const data = readData();

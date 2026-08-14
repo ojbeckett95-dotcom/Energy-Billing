@@ -1,12 +1,17 @@
 import crypto from "crypto";
+import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "./db";
 
 export const COOKIE_NAME = "eb_session";
 const SESSION_MS = 8 * 60 * 60 * 1000; // 8 hours
 
-// Hardcoded recovery password — use this if you forget your main password.
-// Note it down somewhere safe.
-export const BACKDOOR_PASSWORD = "EB-Recovery-2025";
+/** Cookie options shared by every route that issues a session cookie. */
+export const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "strict",
+  path: "/",
+  maxAge: SESSION_MS / 1000,
+} as const;
 
 // ── Password hashing (scrypt) ────────────────────────────────────────────────
 
@@ -32,7 +37,6 @@ export function checkPassword(password: string, stored: string): Promise<boolean
 }
 
 export async function verifyPassword(password: string, storedHash: string | undefined): Promise<boolean> {
-  if (password === BACKDOOR_PASSWORD) return true;
   if (!storedHash) return false;
   return checkPassword(password, storedHash);
 }
@@ -68,4 +72,24 @@ export function getSessionSecret(): string {
   data.authSettings = { ...data.authSettings, sessionSecret: secret };
   writeData(data);
   return secret;
+}
+
+// ── Route guards ──────────────────────────────────────────────────────────────
+
+/** True when the request carries a valid session cookie, or when no password
+ *  has been configured yet (first-run setup). */
+export function isAuthenticated(req: NextRequest): boolean {
+  const data = readData();
+  if (!data.authSettings?.passwordHash) return true;
+
+  const token = req.cookies.get(COOKIE_NAME)?.value;
+  if (!token) return false;
+  const secret = process.env.SESSION_SECRET ?? getSessionSecret();
+  return verifySessionToken(token, secret);
+}
+
+/** Returns a 401 response when the request is unauthenticated, otherwise null. */
+export function requireAuth(req: NextRequest): NextResponse | null {
+  if (isAuthenticated(req)) return null;
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
