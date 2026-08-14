@@ -20,7 +20,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   return new NextResponse(pdfBytes, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="invoice-${id}.pdf"`,
+      "Content-Disposition": `attachment; filename="invoice-${id.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64)}.pdf"`,
     },
   });
 }

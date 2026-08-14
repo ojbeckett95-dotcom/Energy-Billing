@@ -19,6 +19,7 @@ async function verifyToken(token: string, secret: string): Promise<boolean> {
       false, ["verify"]
     );
     // Convert hex sig to bytes
+    if (!/^[0-9a-f]+$/i.test(sigHex) || sigHex.length % 2 !== 0) return false;
     const sigBytes = new Uint8Array(sigHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
     const valid = await crypto.subtle.verify("HMAC", key, sigBytes, enc.encode(payload));
     if (!valid) return false;
@@ -36,12 +37,22 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  // No SESSION_SECRET = dev mode, skip auth
+  // Auth requires SESSION_SECRET (the Electron launcher and any production
+  // deployment must provide it). Without it we fail closed outside development.
   const secret = process.env.SESSION_SECRET;
-  if (!secret) return NextResponse.next();
+  if (!secret) {
+    if (process.env.NODE_ENV !== "production") return NextResponse.next();
+    return new NextResponse(
+      "Server misconfigured: SESSION_SECRET is not set, so sessions cannot be verified.",
+      { status: 503 }
+    );
+  }
 
   const token = req.cookies.get(COOKIE_NAME)?.value;
   if (!token || !await verifyToken(token, secret)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     return NextResponse.redirect(new URL("/login", req.url));
   }
 

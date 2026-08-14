@@ -20,6 +20,18 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Security
+
+- `SESSION_SECRET` must be set for any non-development run. The Electron launcher
+  generates and persists one automatically; when running `next start` yourself,
+  set it explicitly — the middleware refuses requests (HTTP 503) without it
+  rather than serving the app unauthenticated.
+- There is no recovery/master password. If the password is lost, stop the app,
+  remove `authSettings.passwordHash` from `<userData>/data/app-data.json`, and
+  restart — the login screen returns to first-run setup so a new password can be set.
+- SMTP credentials and the session secret live in `app-data.json`; keep that file
+  out of version control and backups that are shared.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
