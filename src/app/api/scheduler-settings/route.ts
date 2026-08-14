@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readData, writeData } from "@/lib/db";
-import type { SchedulerSettings } from "@/lib/types";
+import { readData, updateData } from "@/lib/db";
+import { parseBody, schedulerSettingsPatchSchema } from "@/lib/validation";
 
 export async function GET() {
   const data = readData();
@@ -8,9 +8,12 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const body = await req.json() as Partial<SchedulerSettings>;
-  const data = readData();
-  data.schedulerSettings = { ...data.schedulerSettings, ...body };
-  writeData(data);
-  return NextResponse.json(data.schedulerSettings);
+  const parsed = await parseBody(req, schedulerSettingsPatchSchema);
+  if (!parsed.ok) return parsed.response;
+
+  const settings = updateData((data) => {
+    data.schedulerSettings = { ...data.schedulerSettings, ...parsed.data };
+    return data.schedulerSettings;
+  });
+  return NextResponse.json(settings);
 }

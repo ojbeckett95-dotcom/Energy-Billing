@@ -20,6 +20,23 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Network (LAN) access
+
+The bundled server listens on `127.0.0.1` only, so a fresh install is reachable from the machine it
+runs on and nowhere else. To let other machines on the network use it:
+
+1. Open **Settings → Network** and turn on *Allow access from other devices on the network*.
+2. Set a fixed port if 3001 is unsuitable, then click **Restart Now**.
+3. On the server, allow inbound TCP on that port through the firewall.
+4. From any LAN machine, browse to `http://<server-ip-or-hostname>:3001` and sign in with the same password.
+
+Set `EB_BIND_HOST` (e.g. `EB_BIND_HOST=0.0.0.0`, or a single interface address) to override the bind
+address without changing the setting — useful when running the server outside Electron.
+
+Traffic is plain HTTP: the session cookie and password are readable by anything sniffing the network,
+so only enable this on a trusted LAN. For HTTPS, put a TLS reverse proxy (Caddy, nginx) in front of
+the app and keep the app itself on `127.0.0.1`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

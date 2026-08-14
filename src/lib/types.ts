@@ -152,6 +152,7 @@ export interface SchedulerSettings {
   lastAutoBillingAt?: string; // ISO date of last auto-billing run
   pdfStoragePath: string; // directory to save PDF files; empty = store as base64 in JSON
   serverPort: number; // HTTP port the server listens on (default 3001)
+  allowNetworkAccess: boolean; // listen on all interfaces so other LAN devices can reach the app; false = this machine only
   readingsArchiveMonths: number; // move readings older than this to archive file; 0 = disabled
 }
 

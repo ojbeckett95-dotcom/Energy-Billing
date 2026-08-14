@@ -64,6 +64,7 @@ const DEFAULT_SCHEDULER_SETTINGS: SchedulerSettings = {
   autoBillingTimeOfDay: "09:00",
   pdfStoragePath: "",
   serverPort: 3001,
+  allowNetworkAccess: false,
   readingsArchiveMonths: 0,
 };
 

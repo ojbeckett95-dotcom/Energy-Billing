@@ -18,6 +18,7 @@ const DEFAULT_SCHEDULER: SchedulerSettings = {
   autoBillingTimeOfDay: "09:00",
   pdfStoragePath: "",
   serverPort: 3001,
+  allowNetworkAccess: false,
   readingsArchiveMonths: 0,
 };
 
@@ -429,9 +430,25 @@ export default function SystemSettingsPage() {
             </button>
           </div>
           <p className="text-xs text-slate-500 mb-4">
-            The server listens on all network interfaces (<code className="font-mono">0.0.0.0</code>), so it is reachable from other devices on your network.
-            The port can be changed here — the app must be restarted for a new port to take effect.
+            By default the server only accepts connections from this machine (<code className="font-mono">127.0.0.1</code>).
+            Enable network access to reach it from other devices on your network. A restart is required for either
+            setting to take effect.
           </p>
+          <label className="flex items-start gap-3 cursor-pointer mb-5">
+            <div
+              onClick={() => set("allowNetworkAccess", !scheduler.allowNetworkAccess)}
+              className={`relative mt-0.5 w-11 h-6 rounded-full transition-colors cursor-pointer flex-shrink-0 ${scheduler.allowNetworkAccess ? "bg-blue-600" : "bg-slate-300"}`}
+            >
+              <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${scheduler.allowNetworkAccess ? "translate-x-6" : "translate-x-1"}`} />
+            </div>
+            <div>
+              <span className="text-sm font-medium text-slate-800">Allow access from other devices on the network</span>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Others sign in at <code className="font-mono">http://&lt;this-server&gt;:{scheduler.serverPort ?? 3001}</code> with the same password.
+                Traffic is unencrypted HTTP, so only enable this on a network you trust.
+              </p>
+            </div>
+          </label>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">Server port</label>
             <div className="flex items-center gap-3">
@@ -447,7 +464,7 @@ export default function SystemSettingsPage() {
             </div>
             <div className="flex items-center gap-3 mt-3">
               <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex-1">
-                A restart is required for a port change to take effect.
+                A restart is required for these changes to take effect.
               </p>
               <button
                 onClick={restartApp}

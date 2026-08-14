@@ -98,6 +98,23 @@ const effectiveRangeError = {
 export const tariffSchema = tariffFields.refine(effectiveRangeIsOrdered, effectiveRangeError);
 export const tariffUpdateSchema = tariffFields.partial().refine(effectiveRangeIsOrdered, effectiveRangeError);
 
+export const schedulerSettingsPatchSchema = z.object({
+  autoReadingsEnabled: z.boolean(),
+  autoReadingIntervalMinutes: z.number().int().min(1).max(1440),
+  lastAutoReadAt: isoDateTime,
+  autoBillingEnabled: z.boolean(),
+  autoBillingMode: z.enum(["day-of-month", "interval-days"]),
+  autoBillingDayOfMonth: z.number().int().min(1).max(28),
+  autoBillingIntervalDays: z.number().int().min(1).max(366),
+  autoBillingSendEmail: z.boolean(),
+  autoBillingTimeOfDay: z.string().regex(/^\d{2}:\d{2}$/, "expected HH:MM"),
+  lastAutoBillingAt: isoDateTime,
+  pdfStoragePath: z.string().max(4096),
+  serverPort: z.number().int().min(1024).max(65535),
+  allowNetworkAccess: z.boolean(),
+  readingsArchiveMonths: z.number().int().min(0).max(600),
+}).partial();
+
 export const modbusReadSchema = z.object({
   meterId: z.string().min(1).optional(),
   ip: z.string().min(1).optional(),

@@ -24,6 +24,22 @@ function readConfiguredPort(): number {
 
 const PORT = readConfiguredPort();
 
+// The server listens on loopback unless network access is enabled in Settings,
+// so a fresh install is never exposed to the LAN by accident.
+function readConfiguredHost(): string {
+  if (process.env.EB_BIND_HOST) return process.env.EB_BIND_HOST;
+  try {
+    const dataFile = path.join(app.getPath("userData"), "data", "app-data.json");
+    if (fs.existsSync(dataFile)) {
+      const parsed = JSON.parse(fs.readFileSync(dataFile, "utf-8"));
+      if (parsed?.schedulerSettings?.allowNetworkAccess === true) return "0.0.0.0";
+    }
+  } catch { /* ignore */ }
+  return "127.0.0.1";
+}
+
+const HOST = readConfiguredHost();
+
 // Read (or generate) the HMAC session secret from the data file.
 // This is passed to the Next.js process as SESSION_SECRET so the middleware
 // can verify session tokens without a Node.js crypto import.
@@ -102,8 +118,7 @@ function startNextServer() {
     env: {
       ...process.env,
       PORT: String(PORT),
-      // Loopback only: the bundled server must not be reachable from the network.
-      HOSTNAME: process.env.EB_BIND_HOST ?? "127.0.0.1",
+      HOSTNAME: HOST,
       NODE_ENV: "production",
       DATA_DIR: dataDir,
       SESSION_SECRET,
