@@ -28,7 +28,7 @@ export default function LoginPage() {
 
     if (!hasPassword) {
       // First-run setup
-      if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
+      if (password.length < 8) { setError("Password must be at least 8 characters"); return; }
       if (password !== confirmPassword) { setError("Passwords do not match"); return; }
       setLoading(true);
       const r = await fetch("/api/auth/setup", {
@@ -97,7 +97,7 @@ export default function LoginPage() {
                   onChange={e => setPassword(e.target.value)}
                   autoFocus
                   required
-                  placeholder={hasPassword ? "Enter your password" : "At least 6 characters"}
+                  placeholder={hasPassword ? "Enter your password" : "At least 8 characters"}
                   className="w-full px-3 py-2.5 pr-10 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
                 <button
@@ -144,7 +144,8 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-slate-500 text-xs mt-5">
-          Forgot your password? Use the recovery password documented in your setup notes.
+          Forgot your password? Clear <code>authSettings.passwordHash</code> in your local
+          <code> app-data.json</code> to run first-time setup again.
         </p>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readData, writeData } from "@/lib/db";
-import { hashPassword, createSessionToken, getSessionSecret, COOKIE_NAME } from "@/lib/auth-server";
+import { hashPassword, createSessionToken, getSessionSecret, sessionCookieOptions, COOKIE_NAME } from "@/lib/auth-server";
 
 // Only callable when no password is set yet (first-run setup)
 export async function POST(req: NextRequest) {
@@ -9,23 +9,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Password already configured" }, { status: 403 });
   }
 
-  const { password } = await req.json() as { password: string };
-  if (!password || password.length < 6) {
-    return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+  let password: unknown;
+  try {
+    ({ password } = await req.json() as { password?: unknown });
+  } catch {
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  if (typeof password !== "string" || password.length < 8) {
+    return NextResponse.json({ error: "Password must be at least 8 characters" }, { status: 400 });
   }
 
   data.authSettings.passwordHash = await hashPassword(password);
   writeData(data);
 
-  const secret = process.env.SESSION_SECRET ?? getSessionSecret();
-  const token = createSessionToken(secret);
+  const token = createSessionToken(getSessionSecret());
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 8 * 3600,
-  });
+  res.cookies.set(COOKIE_NAME, token, sessionCookieOptions());
   return res;
 }

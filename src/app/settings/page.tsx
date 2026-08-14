@@ -127,7 +127,7 @@ export default function SystemSettingsPage() {
   }
 
   async function changePassword() {
-    if (newPassword.length < 6) { toast.error("New password must be at least 6 characters"); return; }
+    if (newPassword.length < 8) { toast.error("New password must be at least 8 characters"); return; }
     if (newPassword !== confirmPassword) { toast.error("New passwords do not match"); return; }
     setChangingPassword(true);
     try {
@@ -510,7 +510,7 @@ export default function SystemSettingsPage() {
             <ShieldCheck className="w-4 h-4" /> Security
           </h2>
           <p className="text-xs text-slate-500 mb-4">
-            Change the login password for this application. Enter your current password (or the recovery password) to confirm the change.
+            Change the login password for this application. Enter your current password to confirm the change. Other signed-in sessions are signed out.
           </p>
           <div className="space-y-3 max-w-sm">
             <div>
@@ -520,7 +520,7 @@ export default function SystemSettingsPage() {
                 value={currentPassword}
                 onChange={e => setCurrentPassword(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Current or recovery password"
+                placeholder="Current password"
               />
             </div>
             <div>
@@ -530,7 +530,7 @@ export default function SystemSettingsPage() {
                 value={newPassword}
                 onChange={e => setNewPassword(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="At least 6 characters"
+                placeholder="At least 8 characters"
               />
             </div>
             <div>

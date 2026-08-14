@@ -6,8 +6,7 @@ export async function GET(req: NextRequest) {
   const data = readData();
   const hasPassword = !!data.authSettings?.passwordHash;
 
-  // If no SESSION_SECRET, auth is disabled (dev mode)
-  const secret = process.env.SESSION_SECRET ?? getSessionSecret();
+  const secret = getSessionSecret();
   const token = req.cookies.get(COOKIE_NAME)?.value;
   const authenticated = !!token && verifySessionToken(token, secret);
 

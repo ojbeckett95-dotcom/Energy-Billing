@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readData, writeData, generateId } from "@/lib/db";
+import { readData, writeData, updateData, generateId } from "@/lib/db";
+import { parseBody, readingSchema, readingsPatchSchema, idListSchema } from "@/lib/validation";
 import type { MeterReading } from "@/lib/types";
 
 export async function GET(req: NextRequest) {
@@ -48,73 +49,81 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json() as Omit<MeterReading, "id">;
+  const parsed = await parseBody(req, readingSchema);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.data;
+
   const data = readData();
+  const meter = body.meterId ? data.meters.find((m) => m.id === body.meterId) : undefined;
+  if (body.meterId && !meter) return NextResponse.json({ error: "Meter not found" }, { status: 404 });
 
   // Auto-fill customerId from meter if not provided
-  let customerId = body.customerId;
-  if (!customerId && body.meterId) {
-    const meter = data.meters.find((m) => m.id === body.meterId);
-    if (meter) customerId = meter.customerId;
+  const customerId = body.customerId ?? meter?.customerId;
+  if (!customerId) return NextResponse.json({ error: "customerId or a known meterId is required" }, { status: 400 });
+  if (!data.customers.some((c) => c.id === customerId)) {
+    return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+  }
+  if (meter && meter.customerId !== customerId) {
+    return NextResponse.json({ error: "Meter does not belong to this customer" }, { status: 400 });
   }
 
   const reading: MeterReading = { ...body, customerId, id: generateId() };
-  data.meterReadings.push(reading);
-  writeData(data);
+  updateData((fresh) => { fresh.meterReadings.push(reading); });
   return NextResponse.json(reading, { status: 201 });
 }
 
 // DELETE /api/readings — bulk delete by IDs
 export async function DELETE(req: NextRequest) {
-  const body = await req.json() as { ids: string[] };
-  const { ids } = body;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: "ids array required" }, { status: 400 });
-  }
-  const data = readData();
+  const parsed = await parseBody(req, idListSchema);
+  if (!parsed.ok) return parsed.response;
+  const { ids } = parsed.data;
   const idSet = new Set(ids);
-  const blocked: string[] = [];
-  for (const r of data.meterReadings) {
-    if (!idSet.has(r.id)) continue;
-    const billExists = r.billedInBillId && r.billedInBillId !== "unlinked" && r.billedInBillId !== "manual" && data.bills.some(b => b.id === r.billedInBillId);
-    if (billExists) blocked.push(r.id);
+
+  const blocked = updateData((data) => {
+    const linked = data.meterReadings.filter((r) =>
+      idSet.has(r.id)
+      && r.billedInBillId
+      && r.billedInBillId !== "unlinked"
+      && r.billedInBillId !== "manual"
+      && data.bills.some(b => b.id === r.billedInBillId)
+    );
+    if (linked.length > 0) return linked.length;
+    data.meterReadings = data.meterReadings.filter(r => !idSet.has(r.id));
+    return 0;
+  });
+
+  if (blocked > 0) {
+    return NextResponse.json({ error: `${blocked} reading(s) are linked to existing bills and cannot be deleted.` }, { status: 409 });
   }
-  if (blocked.length > 0) {
-    return NextResponse.json({ error: `${blocked.length} reading(s) are linked to existing bills and cannot be deleted.` }, { status: 409 });
-  }
-  data.meterReadings = data.meterReadings.filter(r => !idSet.has(r.id));
-  writeData(data);
   return NextResponse.json({ success: true, deleted: ids.length });
 }
 
 // PATCH /api/readings — bulk update by IDs
 // Supports: { ids, archived: boolean } or { ids, billedStatus: "billed" | "unbilled" }
 export async function PATCH(req: NextRequest) {
-  const body = await req.json() as { ids: string[]; archived?: boolean; billedStatus?: "billed" | "unbilled" };
-  const { ids, archived, billedStatus } = body;
-  if (!Array.isArray(ids) || ids.length === 0) {
-    return NextResponse.json({ error: "ids array required" }, { status: 400 });
-  }
-  const data = readData();
+  const parsed = await parseBody(req, readingsPatchSchema);
+  if (!parsed.ok) return parsed.response;
+  const { ids, archived, billedStatus } = parsed.data;
   const idSet = new Set(ids);
-  data.meterReadings = data.meterReadings.map((r) => {
-    if (!idSet.has(r.id)) return r;
-    if (archived !== undefined) {
-      if (archived) return { ...r, archived: true };
-      const { archived: _, ...rest } = r;
-      return rest;
-    }
-    if (billedStatus === "billed") {
-      return { ...r, billedInBillId: "manual" };
-    }
-    if (billedStatus === "unbilled") {
-      // Use sentinel "unlinked" rather than removing the field, so the repair
-      // logic in GET (which re-applies billedInBillId by date range) won't
-      // immediately undo this manual override on the next load.
-      return { ...r, billedInBillId: "unlinked" };
-    }
-    return r;
+  updateData((data) => {
+    data.meterReadings = data.meterReadings.map((r) => {
+      if (!idSet.has(r.id)) return r;
+      if (archived !== undefined) {
+        if (archived) return { ...r, archived: true };
+        const { archived: _, ...rest } = r;
+        return rest;
+      }
+      if (billedStatus === "billed") {
+        return { ...r, billedInBillId: "manual" };
+      }
+      if (billedStatus === "unbilled") {
+        // Use sentinel "unlinked" rather than removing the field, so the repair
+        // logic in GET (which re-applies billedInBillId by date range) won't
+        // immediately undo this manual override on the next load.
+        return { ...r, billedInBillId: "unlinked" };
+      }
+      return r;
+    });
   });
-  writeData(data);
   return NextResponse.json({ success: true, count: ids.length });
 }

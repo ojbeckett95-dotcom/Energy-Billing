@@ -102,7 +102,8 @@ function startNextServer() {
     env: {
       ...process.env,
       PORT: String(PORT),
-      HOSTNAME: "0.0.0.0",
+      // Loopback only: the bundled server must not be reachable from the network.
+      HOSTNAME: process.env.EB_BIND_HOST ?? "127.0.0.1",
       NODE_ENV: "production",
       DATA_DIR: dataDir,
       SESSION_SECRET,

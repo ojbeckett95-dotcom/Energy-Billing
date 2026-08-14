@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readData, writeData, generateBillId, getActiveTariffId, saveBillPDFToFile } from "@/lib/db";
+import { readData, updateData, generateBillId, getActiveTariffId, saveBillPDFToFile } from "@/lib/db";
+import { calculateBillCharges } from "@/lib/billing";
 import { generateBillPDF } from "@/lib/pdf-generator";
 import type { Bill } from "@/lib/types";
 
@@ -61,25 +62,13 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       continue;
     }
 
-    const tariff1Usage = Math.max(0, closingReading.tariff1Kwh - openingReading.tariff1Kwh);
-    const tariff2Usage = tariff.tariff2Enabled !== false
-      ? Math.max(0, closingReading.tariff2Kwh - openingReading.tariff2Kwh)
-      : 0;
-    const tariff1Cost = tariff1Usage * tariff.tariff1RatePerKwh;
-    const tariff2Cost = tariff2Usage * tariff.tariff2RatePerKwh;
-
-    const billingDays = Math.ceil(
-      (new Date(billingPeriodEnd).getTime() - new Date(billingPeriodStart).getTime()) /
-        (1000 * 60 * 60 * 24),
+    const charges = calculateBillCharges(
+      tariff, openingReading, closingReading, billingPeriodStart, billingPeriodEnd,
     );
-    const standingCharge = billingDays * tariff.standingChargePerDay;
-    const subtotal = tariff1Cost + tariff2Cost + standingCharge;
-    const vat = subtotal * (tariff.vatRate / 100);
-    const total = subtotal + vat;
 
     const generatedAt = new Date();
     const bill: Bill = {
-      id: generateBillId(customer.accountNumber, meter.serialNumber, generatedAt),
+      id: generateBillId(customer.accountNumber, meter.serialNumber, generatedAt, data.bills.map(b => b.id)),
       customerId: id,
       meterId: meter.id,
       tariffRateId: tariff.id,
@@ -87,17 +76,37 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       billingPeriodEnd,
       openingReadingId: openingReading.id,
       closingReadingId: closingReading.id,
-      tariff1Usage,
-      tariff2Usage,
-      tariff1Cost,
-      tariff2Cost,
-      standingCharge,
-      subtotal,
-      vat,
-      total,
+      tariff1Usage: charges.tariff1Usage,
+      tariff2Usage: charges.tariff2Usage,
+      ...(charges.tariff3Usage !== undefined && { tariff3Usage: charges.tariff3Usage, tariff3Cost: charges.tariff3Cost }),
+      ...(charges.tariff4Usage !== undefined && { tariff4Usage: charges.tariff4Usage, tariff4Cost: charges.tariff4Cost }),
+      tariff1Cost: charges.tariff1Cost,
+      tariff2Cost: charges.tariff2Cost,
+      standingCharge: charges.standingCharge,
+      subtotal: charges.subtotal,
+      vat: charges.vat,
+      total: charges.total,
       status: "draft",
       generatedAt: generatedAt.toISOString(),
     };
+
+    // Claim the bill ID and record it before the PDF work, so a PDF failure cannot lose the bill.
+    updateData((fresh) => {
+      bill.id = generateBillId(customer.accountNumber, meter.serialNumber, generatedAt, fresh.bills.map(b => b.id));
+      fresh.bills.push(bill);
+      fresh.meterReadings = fresh.meterReadings.map((r) => {
+        if (r.meterId !== meter.id) return r;
+        if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
+        return { ...r, billedInBillId: bill.id };
+      });
+      const custIdx = fresh.customers.findIndex((c) => c.id === id);
+      if (custIdx >= 0) {
+        fresh.customers[custIdx] = {
+          ...fresh.customers[custIdx],
+          lastAutoBilledAt: new Date().toISOString().substring(0, 10),
+        };
+      }
+    });
 
     // Generate PDF
     try {
@@ -108,26 +117,15 @@ export async function POST(_: NextRequest, { params }: { params: Promise<{ id: s
       } else {
         bill.pdfBase64 = Buffer.from(pdfBytes).toString("base64");
       }
+      updateData((fresh) => {
+        const idx = fresh.bills.findIndex((b) => b.id === bill.id);
+        if (idx >= 0) fresh.bills[idx] = bill;
+      });
     } catch (err) {
       console.error(`bill-now PDF error for ${meter.name}:`, err);
+      results.push({ meter: meter.name, billId: bill.id, error: "Bill saved but PDF generation failed" });
+      continue;
     }
-
-    // Save bill + mark readings as billed + update lastAutoBilledAt
-    const fresh = readData();
-    fresh.bills.push(bill);
-    fresh.meterReadings = fresh.meterReadings.map((r) => {
-      if (r.meterId !== meter.id) return r;
-      if (r.readingDate < openingReading.readingDate || r.readingDate > closingReading.readingDate) return r;
-      return { ...r, billedInBillId: bill.id };
-    });
-    const custIdx = fresh.customers.findIndex((c) => c.id === id);
-    if (custIdx >= 0) {
-      fresh.customers[custIdx] = {
-        ...fresh.customers[custIdx],
-        lastAutoBilledAt: new Date().toISOString().substring(0, 10),
-      };
-    }
-    writeData(fresh);
 
     results.push({ meter: meter.name, billId: bill.id });
   }
