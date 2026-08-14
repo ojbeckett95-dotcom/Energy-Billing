@@ -37,6 +37,25 @@ Traffic is plain HTTP: the session cookie and password are readable by anything 
 so only enable this on a trusted LAN. For HTTPS, put a TLS reverse proxy (Caddy, nginx) in front of
 the app and keep the app itself on `127.0.0.1`.
 
+## Building the Windows installer
+
+Run this **on a 64-bit Windows machine** with [Bun](https://bun.sh) installed:
+
+```bash
+bun install
+bun run electron:build
+```
+
+The installer lands in `dist/Energy Billing Setup <version>.exe`.
+
+Build on Windows, not on Linux/macOS: `next build` resolves platform-specific binaries (e.g.
+`sharp`) for the machine it runs on, so a cross-built package carries the wrong ones and image
+handling fails at runtime. The installer is unsigned, so Windows SmartScreen warns on first run
+until you choose *More info → Run anyway* (a code-signing certificate is the only way to remove that).
+
+Never build on a machine that has live billing data in `data/` — the build excludes it, but keep it
+that way if you change `next.config.ts`.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
